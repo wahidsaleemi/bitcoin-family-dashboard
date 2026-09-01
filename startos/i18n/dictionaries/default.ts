@@ -38,6 +38,9 @@ const dict = {
   'Authentication key for the custom price API': 32,
   'Coinbase (default, free, no API key)': 43,
   'CoinGecko (free, no API key)': 44,
+  'Coinbase Exchange (default, free, no API key)': 51,
+  'Binance (free, no API key)': 52,
+  'Bitstamp (free, no API key)': 53,
   // actions/background.ts
   'Rotate background image via Pexels': 45,
   'Fetch a new background photo from Pexels every few minutes (free API key required)': 46,

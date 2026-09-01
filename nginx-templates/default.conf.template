@@ -26,16 +26,6 @@ server {
         add_header Cache-Control "no-store";
     }
 
-    # Coinbase pass-through for price + history:
-    # /api/cb/prices/... -> https://api.coinbase.com/v2/prices/...
-    location /api/cb/ {
-        proxy_pass https://api.coinbase.com/v2/;
-        proxy_ssl_server_name on;
-        proxy_ssl_protocols TLSv1.2 TLSv1.3;
-        proxy_read_timeout 15s;
-        proxy_set_header Host api.coinbase.com;
-    }
-
     # Blockchain.com pass-through for long-range price history:
     # /api/bc/market-price?... -> https://api.blockchain.info/charts/market-price?...
     location /api/bc/ {

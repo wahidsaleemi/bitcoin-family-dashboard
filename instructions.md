@@ -18,7 +18,7 @@ All settings are managed from the StartOS **Actions** menu for this service:
 - **Add Family Member** — add a member with name, BTC holdings, and average cost basis. An auto-generated avatar is shown automatically.
 - **Remove Family Member** — remove an existing member from the dashboard.
 - **Update Family Member** — change a member's BTC holdings or average cost basis.
-- **Configure Price Source** — choose **Coinbase** (default, free, no API key), **CoinGecko** (free, no API key), or **Custom API** with your own endpoint URL and API key.
+- **Configure Price Source** — choose **Coinbase Exchange** (default, free, no API key), **Binance** (free), **Bitstamp** (free), or **Custom API** with your own endpoint URL and API key.
 - **Configure Background** — enable rotating background photos from Pexels (free API key required: [https://www.pexels.com/api/](https://www.pexels.com/api/)). When enabled, a new photo is fetched every 5 minutes.
 
 ## Dark Mode

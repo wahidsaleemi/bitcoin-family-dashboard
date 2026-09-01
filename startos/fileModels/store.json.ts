@@ -9,7 +9,7 @@ const familyMemberSchema = z.object({
 })
 
 const priceSourceSchema = z.object({
-  type: z.enum(['coinbase', 'coingecko', 'custom']).catch('coinbase'),
+  type: z.enum(['coinbase', 'binance', 'bitstamp', 'custom']).catch('coinbase'),
   apiUrl: z.string().catch(''),
   apiKey: z.string().catch(''),
 })

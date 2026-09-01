@@ -459,30 +459,49 @@ async function fetchPriceFromAPI() {
     }
 
     if (source.type === 'coinbase') {
-        // Coinbase (default): spot price now vs 24h ago via the proxy
-        // /api/cb/prices/BTC-USD/spot and /spot?date=... (24h-ago price)
+        // Coinbase Exchange: /api/price proxies to
+        // https://api.exchange.coinbase.com/products/BTC-USD/ticker
+        // Returns { price: "78178.98", ... } — no 24h change.
         try {
-            const now = await fetchJSON('/api/cb/prices/BTC-USD/spot');
-            const currentPrice = parseFloat(now.data.amount);
-
-            const d = new Date();
-            d.setDate(d.getDate() - 1);
-            const dateStr = d.toISOString().split('T')[0];
-            const then = await fetchJSON(`/api/cb/prices/BTC-USD/spot?date=${dateStr}`);
-            const thenPrice = parseFloat(then.data.amount);
-
-            const hourChangePercentage = thenPrice > 0
-                ? ((currentPrice - thenPrice) / thenPrice) * 100
-                : 0;
-
-            return formatPriceData(currentPrice, hourChangePercentage);
+            const data = await fetchJSON('/api/price');
+            const currentPrice = parseFloat(data.price);
+            return formatPriceData(currentPrice, 0);
         } catch (e) {
             console.error('Coinbase price error:', e);
             return null;
         }
     }
 
-    // CoinGecko via proxy
+    if (source.type === 'binance') {
+        // Binance: /api/price proxies to
+        // https://data-api.binance.vision/api/v3/ticker/price?symbol=BTCUSD
+        // Returns { symbol, price: "77583.00" } — no 24h change.
+        try {
+            const data = await fetchJSON('/api/price');
+            const currentPrice = parseFloat(data.price);
+            return formatPriceData(currentPrice, 0);
+        } catch (e) {
+            console.error('Binance price error:', e);
+            return null;
+        }
+    }
+
+    if (source.type === 'bitstamp') {
+        // Bitstamp: /api/price proxies to
+        // https://www.bitstamp.net/api/v2/ticker/btcusd/
+        // Returns { last, percent_change_24, ... } — has built-in 24h change.
+        try {
+            const data = await fetchJSON('/api/price');
+            const currentPrice = parseFloat(data.last);
+            const hourChangePercentage = parseFloat(data.percent_change_24 || 0);
+            return formatPriceData(currentPrice, hourChangePercentage);
+        } catch (e) {
+            console.error('Bitstamp price error:', e);
+            return null;
+        }
+    }
+
+    // Fallback: CoinGecko via proxy (legacy configs)
     try {
         const data = await fetchJSON(`${CG}/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true`);
         return formatPriceData(data.bitcoin.usd, data.bitcoin.usd_24h_change);

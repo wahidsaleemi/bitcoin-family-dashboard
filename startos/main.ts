@@ -3,10 +3,9 @@ import { sdk } from './sdk'
 import { uiPort } from './utils'
 import { storeJson } from './fileModels/store.json'
 
-const COINBASE_SPOT_URL = 'https://api.coinbase.com/v2/prices/BTC-USD/spot'
-const COINBASE_HISTORIC_URL = 'https://api.coinbase.com/v2/prices/BTC-USD/historic'
-const COINGECKO_PRICE_URL =
-  'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true'
+const COINBASE_TICKER_URL = 'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
+const BINANCE_TICKER_URL = 'https://data-api.binance.vision/api/v3/ticker/price?symbol=BTCUSD'
+const BITSTAMP_TICKER_URL = 'https://www.bitstamp.net/api/v2/ticker/btcusd/'
 
 export const main = sdk.setupMain(async ({ effects }) => {
   console.info(i18n('Starting Bitcoin Family Dashboard!'))
@@ -36,14 +35,18 @@ export const main = sdk.setupMain(async ({ effects }) => {
       priceUpstream = source!.apiUrl.trim()
       priceHost = safeHost(source!.apiUrl.trim())
       break
-    case 'coingecko':
-      priceUpstream = COINGECKO_PRICE_URL
-      priceHost = 'api.coingecko.com'
+    case 'binance':
+      priceUpstream = BINANCE_TICKER_URL
+      priceHost = 'data-api.binance.vision'
+      break
+    case 'bitstamp':
+      priceUpstream = BITSTAMP_TICKER_URL
+      priceHost = 'www.bitstamp.net'
       break
     case 'coinbase':
     default:
-      priceUpstream = COINBASE_SPOT_URL
-      priceHost = 'api.coinbase.com'
+      priceUpstream = COINBASE_TICKER_URL
+      priceHost = 'api.exchange.coinbase.com'
       break
   }
 

@@ -19,8 +19,9 @@ const priceSourceInput = InputSpec.of({
     description: i18n('Select the price data provider'),
     default: 'coinbase',
     values: {
-      coinbase: 'Coinbase (default, free, no API key)',
-      coingecko: 'CoinGecko (free, no API key)',
+      coinbase: 'Coinbase Exchange (default, free, no API key)',
+      binance: 'Binance (free, no API key)',
+      bitstamp: 'Bitstamp (free, no API key)',
       custom: 'Custom API',
     },
   }),
@@ -63,7 +64,7 @@ export const configurePriceSource = sdk.Action.withInput(
     const config = (await storeJson.read().once()) ?? defaultConfig()
 
     config.priceSource = {
-      type: input.type as 'coinbase' | 'coingecko' | 'custom',
+      type: input.type as 'coinbase' | 'binance' | 'bitstamp' | 'custom',
       apiUrl: (input.apiUrl ?? '').trim(),
       apiKey: (input.apiKey ?? '').trim(),
     }
@@ -72,10 +73,12 @@ export const configurePriceSource = sdk.Action.withInput(
 
     const sourceName =
       input.type === 'coinbase'
-        ? 'Coinbase'
-        : input.type === 'coingecko'
-          ? 'CoinGecko'
-          : `Custom (${input.apiUrl})`
+        ? 'Coinbase Exchange'
+        : input.type === 'binance'
+          ? 'Binance'
+          : input.type === 'bitstamp'
+            ? 'Bitstamp'
+            : `Custom (${input.apiUrl})`
     return {
       version: '1' as const,
       title: 'Price Source Updated',
