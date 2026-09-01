@@ -9,8 +9,13 @@ const familyMemberSchema = z.object({
 })
 
 const priceSourceSchema = z.object({
-  type: z.enum(['coingecko', 'custom']).catch('coingecko'),
+  type: z.enum(['coinbase', 'coingecko', 'custom']).catch('coinbase'),
   apiUrl: z.string().catch(''),
+  apiKey: z.string().catch(''),
+})
+
+const pexelsSchema = z.object({
+  enabled: z.boolean().catch(false),
   apiKey: z.string().catch(''),
 })
 
@@ -24,11 +29,13 @@ const configSchema = z.object({
       avgCost: 40000,
     },
   ]),
-  priceSource: priceSourceSchema.catch({ type: 'coingecko', apiUrl: '', apiKey: '' }),
+  priceSource: priceSourceSchema.catch({ type: 'coinbase', apiUrl: '', apiKey: '' }),
+  pexels: pexelsSchema.catch({ enabled: false, apiKey: '' }),
 })
 
 export type FamilyMember = z.infer<typeof familyMemberSchema>
 export type PriceSource = z.infer<typeof priceSourceSchema>
+export type PexelsConfig = z.infer<typeof pexelsSchema>
 export type DashboardConfig = z.infer<typeof configSchema>
 
 export const storeJson = FileHelper.json(

@@ -1,17 +1,19 @@
-import * as fs from 'fs'
 import { i18n } from '../i18n'
 import { sdk } from '../sdk'
 import { storeJson, DashboardConfig } from '../fileModels/store.json'
 
-const { InputSpec, Value } = sdk
+const { InputSpec, Value, Variants } = sdk
 
 const MAX_MEMBERS = 6
 
 function defaultConfig(): DashboardConfig {
   return {
     title: 'Bitcoin Family Dashboard',
-    familyMembers: [],
-    priceSource: { type: 'coingecko', apiUrl: '', apiKey: '' },
+    familyMembers: [
+      { name: 'Satoshi', avatar: '', btcAmount: 0.125, avgCost: 40000 },
+    ],
+    priceSource: { type: 'coinbase', apiUrl: '', apiKey: '' },
+    pexels: { enabled: false, apiKey: '' },
   }
 }
 
@@ -19,29 +21,10 @@ async function readConfig(): Promise<DashboardConfig> {
   return (await storeJson.read().once()) ?? defaultConfig()
 }
 
-function fileToDataUri(filePath: string): string {
-  const data = fs.readFileSync(filePath)
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
-  const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
-  return `data:${mime};base64,${data.toString('base64')}`
-}
-
-// ── Helper: build member select values from config ─────────────
-async function buildMemberSelect(opts: { effects: any; prefill: any }) {
-  const config = await readConfig()
-  const values: Record<string, string> = {}
-  config.familyMembers.forEach((m) => {
-    values[m.name] = m.name
-  })
-  return {
-    name: 'Members',
-    description: 'Select a family member',
-    default: config.familyMembers[0]?.name ?? '',
-    values,
-  }
-}
-
 // ── Add Family Member ─────────────────────────────────────────────
+// No avatar field: the dashboard always shows an auto-generated pravatar
+// by default, and the user changes it by clicking the avatar on the
+// dashboard itself (client-side upload/resize/encode).
 
 const addMemberInput = InputSpec.of({
   name: Value.text({
@@ -50,12 +33,6 @@ const addMemberInput = InputSpec.of({
     required: true,
     default: '',
     masked: false,
-  }),
-  avatar: Value.file({
-    name: i18n('Profile Picture'),
-    description: i18n('Upload a profile picture (recommended 150x150)'),
-    required: false,
-    extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
   }),
   btcAmount: Value.number({
     name: i18n('BTC Amount'),
@@ -92,22 +69,27 @@ export const addMember = sdk.Action.withInput(
   addMemberInput,
   async () => ({
     name: '',
-    avatar: null as { path: string; commitment: { hash: string; size: number } } | null,
     btcAmount: 0,
     avgCost: 0,
   }),
-  async ({ effects, input }) => {
+  async ({ effects, input }: any) => {
     const config = await readConfig()
 
     if (config.familyMembers.length >= MAX_MEMBERS) {
       throw new Error(`Maximum of ${MAX_MEMBERS} family members allowed`)
     }
 
-    const avatar = input.avatar ? fileToDataUri(input.avatar.path) : ''
+    const name = input.name.trim()
+    if (!name) {
+      throw new Error('Member name is required')
+    }
+    if (config.familyMembers.some((m: { name: string }) => m.name === name)) {
+      throw new Error(`A member named "${name}" already exists`)
+    }
 
     config.familyMembers.push({
-      name: input.name.trim(),
-      avatar,
+      name,
+      avatar: '', // auto-generated pravatar shown on dashboard
       btcAmount: input.btcAmount,
       avgCost: input.avgCost,
     })
@@ -116,7 +98,7 @@ export const addMember = sdk.Action.withInput(
     return {
       version: '1' as const,
       title: 'Member Added',
-      message: `Added "${input.name}" to the dashboard`,
+      message: `Added "${name}" to the dashboard`,
       result: null,
     }
   },
@@ -125,7 +107,19 @@ export const addMember = sdk.Action.withInput(
 // ── Remove Family Member ──────────────────────────────────────────
 
 const removeMemberInput = InputSpec.of({
-  member: Value.dynamicSelect(buildMemberSelect as any),
+  member: Value.dynamicSelect(async () => {
+    const config = await readConfig()
+    const values: Record<string, string> = {}
+    config.familyMembers.forEach((m) => {
+      values[m.name] = m.name
+    })
+    return {
+      name: i18n('Select Member to Remove'),
+      description: i18n('Choose which family member to remove from the dashboard'),
+      default: (config.familyMembers[0]?.name ?? '') as any,
+      values,
+    }
+  }),
 })
 
 export const removeMember = sdk.Action.withInput(
@@ -133,7 +127,7 @@ export const removeMember = sdk.Action.withInput(
   {
     name: i18n('Remove Family Member'),
     description: i18n('Remove a family member from the dashboard'),
-    warning: null,
+    warning: i18n('This permanently removes the member from the dashboard'),
     visibility: 'enabled',
     allowedStatuses: 'any',
     group: 'Family Members',
@@ -143,9 +137,9 @@ export const removeMember = sdk.Action.withInput(
     const config = await readConfig()
     return { member: config.familyMembers[0]?.name ?? '' }
   },
-  async ({ effects, input }) => {
+  async ({ effects, input }: any) => {
     const config = await readConfig()
-    const idx = config.familyMembers.findIndex((m) => m.name === input.member)
+    const idx = config.familyMembers.findIndex((m: { name: string }) => m.name === input.member)
     if (idx === -1) {
       throw new Error(`Member "${input.member}" not found`)
     }
@@ -161,42 +155,65 @@ export const removeMember = sdk.Action.withInput(
 )
 
 // ── Update Family Member ──────────────────────────────────────────
+// A dynamic union: each family member is a variant carrying a sub-form
+// prefilled with that member's CURRENT values. Switching the selection
+// re-runs the builder and shows the other member's real holdings/cost.
+
+function memberVariantSpec(member: { name: string; btcAmount: number; avgCost: number }) {
+  return InputSpec.of({
+    btcAmount: Value.number({
+      name: i18n('BTC Amount'),
+      description: i18n('Updated BTC holdings'),
+      required: true,
+      default: member.btcAmount,
+      min: 0,
+      max: 21000000,
+      integer: false,
+      units: 'BTC',
+    }),
+    avgCost: Value.number({
+      name: i18n('Average Cost Basis (USD)'),
+      description: i18n('Updated average purchase price per BTC'),
+      required: true,
+      default: member.avgCost,
+      min: 0,
+      max: 100000000,
+      integer: false,
+      units: 'USD',
+    }),
+  })
+}
+
+const updateMemberUnion = Value.dynamicUnion(async ({ prefill }: any) => {
+  const config = await readConfig()
+  const members = config.familyMembers
+
+  const variants: Record<string, { name: string; spec: any }> = {}
+  members.forEach((m: { name: string; btcAmount: number; avgCost: number }) => {
+    variants[m.name] = { name: m.name, spec: memberVariantSpec(m) }
+  })
+
+  const wanted = prefill?.selection as string | undefined
+  const selected = members.find((m: { name: string }) => m.name === wanted) ?? members[0]
+
+  return {
+    name: i18n('Select Member to Update'),
+    description: i18n('Choose which family member to update'),
+    variants: Variants.of(variants as any) as any,
+    default: (selected?.name ?? '') as any,
+    disabled: false as const,
+  }
+})
 
 const updateMemberInput = InputSpec.of({
-  member: Value.dynamicSelect(buildMemberSelect as any),
-  btcAmount: Value.number({
-    name: i18n('BTC Amount'),
-    description: i18n('Updated BTC holdings'),
-    required: true,
-    default: 0,
-    min: 0,
-    max: 21000000,
-    integer: false,
-    units: 'BTC',
-  }),
-  avgCost: Value.number({
-    name: i18n('Average Cost Basis (USD)'),
-    description: i18n('Updated average purchase price per BTC'),
-    required: true,
-    default: 0,
-    min: 0,
-    max: 100000000,
-    integer: false,
-    units: 'USD',
-  }),
-  avatar: Value.file({
-    name: i18n('Profile Picture (optional, to replace)'),
-    description: i18n('Leave empty to keep current avatar. Upload new image to replace.'),
-    required: false,
-    extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-  }),
+  member: updateMemberUnion as any,
 })
 
 export const updateMember = sdk.Action.withInput(
   'update-member',
   {
     name: i18n('Update Family Member'),
-    description: i18n('Update BTC holdings or profile picture for a family member'),
+    description: i18n('Update BTC holdings or average cost basis for a family member'),
     warning: null,
     visibility: 'enabled',
     allowedStatuses: 'any',
@@ -207,31 +224,38 @@ export const updateMember = sdk.Action.withInput(
     const config = await readConfig()
     const first = config.familyMembers[0]
     return {
-      member: first?.name ?? '',
-      btcAmount: first?.btcAmount ?? 0,
-      avgCost: first?.avgCost ?? 0,
-      avatar: null as { path: string; commitment: { hash: string; size: number } } | null,
+      member: {
+        selection: first?.name ?? '',
+        value: {
+          btcAmount: first?.btcAmount ?? 0,
+          avgCost: first?.avgCost ?? 0,
+        },
+      },
     }
   },
-  async ({ effects, input }) => {
+  async ({ effects, input }: any) => {
     const config = await readConfig()
-    const member = config.familyMembers.find((m) => m.name === input.member)
+
+    const selection = input.member?.selection as string | undefined
+    const values = input.member?.value ?? {}
+
+    const member = config.familyMembers.find((m: { name: string }) => m.name === selection)
     if (!member) {
-      throw new Error(`Member "${input.member}" not found`)
+      throw new Error(
+        selection
+          ? `Member "${selection}" not found`
+          : 'No family member selected — there may be no members configured yet',
+      )
     }
 
-    member.btcAmount = input.btcAmount
-    member.avgCost = input.avgCost
-
-    if (input.avatar) {
-      member.avatar = fileToDataUri(input.avatar.path)
-    }
+    if (typeof values.btcAmount === 'number') member.btcAmount = values.btcAmount
+    if (typeof values.avgCost === 'number') member.avgCost = values.avgCost
 
     await storeJson.write(effects, config)
     return {
       version: '1' as const,
       title: 'Member Updated',
-      message: `Updated "${input.member}"`,
+      message: `Updated "${member.name}"`,
       result: null,
     }
   },

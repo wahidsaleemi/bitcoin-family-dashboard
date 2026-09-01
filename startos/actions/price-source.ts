@@ -8,7 +8,8 @@ function defaultConfig(): DashboardConfig {
   return {
     title: 'Bitcoin Family Dashboard',
     familyMembers: [],
-    priceSource: { type: 'coingecko', apiUrl: '', apiKey: '' },
+    priceSource: { type: 'coinbase', apiUrl: '', apiKey: '' },
+    pexels: { enabled: false, apiKey: '' },
   }
 }
 
@@ -16,8 +17,9 @@ const priceSourceInput = InputSpec.of({
   type: Value.select({
     name: i18n('Price Source'),
     description: i18n('Select the price data provider'),
-    default: 'coingecko',
+    default: 'coinbase',
     values: {
+      coinbase: 'Coinbase (default, free, no API key)',
       coingecko: 'CoinGecko (free, no API key)',
       custom: 'Custom API',
     },
@@ -61,14 +63,19 @@ export const configurePriceSource = sdk.Action.withInput(
     const config = (await storeJson.read().once()) ?? defaultConfig()
 
     config.priceSource = {
-      type: input.type as 'coingecko' | 'custom',
+      type: input.type as 'coinbase' | 'coingecko' | 'custom',
       apiUrl: (input.apiUrl ?? '').trim(),
       apiKey: (input.apiKey ?? '').trim(),
     }
 
     await storeJson.write(effects, config)
 
-    const sourceName = input.type === 'coingecko' ? 'CoinGecko' : `Custom (${input.apiUrl})`
+    const sourceName =
+      input.type === 'coinbase'
+        ? 'Coinbase'
+        : input.type === 'coingecko'
+          ? 'CoinGecko'
+          : `Custom (${input.apiUrl})`
     return {
       version: '1' as const,
       title: 'Price Source Updated',

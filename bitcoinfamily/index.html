@@ -14,10 +14,12 @@
             padding: 20px 0 10px;
         }
         .dashboard-title h1 {
-            font-size: 2em;
+            font-size: 2.2em;
             margin: 0;
-            color: #f7931a;
+            color: #000000;
+            font-weight: 900;
             letter-spacing: 1px;
+            text-shadow: 0 0 1px #000;
         }
         .avatar-img {
             width: 100px;
@@ -30,11 +32,143 @@
             text-align: center;
             padding: 10px;
         }
+        .avatar-wrap {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+        }
+        .avatar-wrap .camera-overlay {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.55);
+            color: #fff;
+            font-size: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        .avatar-wrap:hover .camera-overlay {
+            opacity: 1;
+        }
+        .avatar-wrap .avatar-img {
+            display: block;
+        }
+
+        /* ── Dark Mode ─────────────────────────────────────── */
+        body.dark {
+            background-color: #0a0a0f;
+            background-image: none;
+        }
+        body.dark #main {
+            background: #14141c;
+            color: #e8e8f0;
+            box-shadow: 0 0 40px rgba(0,0,0,0.6);
+        }
+        body.dark #main h1,
+        body.dark #main h2,
+        body.dark #main h3,
+        body.dark #main span,
+        body.dark #main p,
+        body.dark .section-title {
+            color: #e8e8f0;
+        }
+        body.dark #chart-title {
+            color: #ffffff !important;
+        }
+        body.dark .dashboard-title h1 {
+            color: #ffffff;
+            text-shadow: 0 0 4px rgba(0,0,0,0.8);
+        }
+        body.dark #wrapper > p {
+            color: #ffffff !important;
+        }
+        body.dark #main .btc-box {
+            background-color: #f0b90b;
+            color: #000000;
+        }
+        body.dark #main .usd-amount {
+            color: #e8e8f0;
+        }
+        /* Dark overlay for Pexels bg so text stays readable */
+        body.dark.dark-pexels::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 0;
+        }
+        body.dark #wrapper {
+            position: relative;
+            z-index: 1;
+        }
+        /* Toggle switch — pill slider with sun/moon */
+        .theme-toggle {
+            position: fixed;
+            top: 8px;
+            right: 50px;
+            width: 52px;
+            height: 28px;
+            border: 1px solid rgba(0,0,0,0.2);
+            border-radius: 14px;
+            background: rgba(255,255,255,0.75);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+            box-sizing: border-box;
+        }
+        .theme-toggle:hover {
+            box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+        }
+        body.dark .theme-toggle {
+            background: rgba(30,30,40,0.75);
+            border-color: rgba(255,255,255,0.25);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        .theme-toggle svg {
+            display: block;
+            flex: 0 0 auto;
+        }
+        .theme-toggle .icon-sun { color: #f59e0b; }
+        .theme-toggle .icon-moon { color: #a78bfa; }
+        .theme-toggle .icon-moon { display: none; }
+        body.dark .theme-toggle .icon-moon { display: block; }
+        body.dark .theme-toggle .icon-sun { display: none; }
+        .theme-toggle:hover svg {
+            transform: scale(1.1);
+            transition: transform 0.2s ease;
+        }
     </style>
     <noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
 </head>
 <body>
     <div id="fullscreen-icon" onclick="toggleFullScreen()"></div>
+    <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" onclick="toggleTheme()" aria-label="Toggle dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"></circle>
+            <line x1="12" y1="2" x2="12" y2="4"></line>
+            <line x1="12" y1="20" x2="12" y2="22"></line>
+            <line x1="4.93" y1="4.93" x2="6.34" y2="6.34"></line>
+            <line x1="17.66" y1="17.66" x2="19.07" y2="19.07"></line>
+            <line x1="2" y1="12" x2="4" y2="12"></line>
+            <line x1="20" y1="12" x2="22" y2="12"></line>
+            <line x1="4.93" y1="19.07" x2="6.34" y2="17.66"></line>
+            <line x1="17.66" y1="6.34" x2="19.07" y2="4.93"></line>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+    </button>
 
     <div class="dashboard-title">
         <h1 id="dashboard-heading">Bitcoin Family Dashboard</h1>
@@ -87,16 +221,20 @@
                     <tr>
                         <td colspan="6">
                             <br />
+                            <h3 id="chart-title" class="section-title" style="text-align:center; color:#000; font-weight:700;">30-day Price Graph</h3>
                             <canvas id="myChart" width="1285" height="395"></canvas>
                         </td>
                     </tr>
                 </table>
             </header>
         </section>
+        <p style="text-align:center; color:#000; font-size:0.75em; margin-top:6px; text-transform:none; letter-spacing:normal;">
+            Note: Refreshing too many times will rate-limit the chart. Wait a while and try again if the chart does not work.
+        </p>
     </div>
 
 <script>
-// ── Configuration ───────────────────────────────────────────────
+// ── Configuration ─────────────────────────────────────────────
 let dashboardConfig = null;
 
 // Default Satoshi config (used if /config.json is missing)
@@ -105,7 +243,8 @@ const DEFAULT_CONFIG = {
     familyMembers: [
         { name: "Satoshi", avatar: "", btcAmount: 0.125, avgCost: 40000 }
     ],
-    priceSource: { type: "coingecko", apiUrl: "", apiKey: "" }
+    priceSource: { type: "coinbase", apiUrl: "", apiKey: "" },
+    pexels: { enabled: false, apiKey: "" }
 };
 
 // ── Load Config ─────────────────────────────────────────────────
@@ -121,10 +260,10 @@ async function loadConfig() {
         console.warn('Could not load config, using defaults:', e);
         dashboardConfig = DEFAULT_CONFIG;
     }
-    // Ensure required fields
     if (!dashboardConfig.title) dashboardConfig.title = "Bitcoin Family Dashboard";
     if (!Array.isArray(dashboardConfig.familyMembers)) dashboardConfig.familyMembers = [];
-    if (!dashboardConfig.priceSource) dashboardConfig.priceSource = { type: "coingecko", apiUrl: "", apiKey: "" };
+    if (!dashboardConfig.priceSource) dashboardConfig.priceSource = { type: "coinbase", apiUrl: "", apiKey: "" };
+    if (!dashboardConfig.pexels) dashboardConfig.pexels = { enabled: false, apiKey: "" };
 }
 
 // ── Toggle Fullscreen ──────────────────────────────────────────
@@ -136,7 +275,66 @@ function toggleFullScreen() {
     }
 }
 
+// ── Dark Mode Toggle ───────────────────────────────────────────
+function applyTheme(dark) {
+    document.body.classList.toggle('dark', dark);
+    try {
+        localStorage.setItem('darkMode', dark ? '1' : '0');
+    } catch (e) {}
+}
+
+function toggleTheme() {
+    const dark = !document.body.classList.contains('dark');
+    applyTheme(dark);
+    applyChartTheme();
+    if (myChart) myChart.update();
+}
+
+// Keep the Pexels overlay class in sync (dark overlay only when dark mode)
+function updatePexelsOverlay() {
+    const dark = document.body.classList.contains('dark');
+    const pexels = !!(dashboardConfig.pexels && dashboardConfig.pexels.enabled);
+    document.body.classList.toggle('dark-pexels', dark && pexels);
+}
+
+// Apply saved preference on load
+try {
+    if (localStorage.getItem('darkMode') === '1') {
+        document.body.classList.add('dark');
+    }
+} catch (e) {}
+
 // ── Build Family Member Cards ──────────────────────────────────
+// Local overrides for avatars (uploaded via the camera overlay) live in
+// localStorage under 'avatarOverrides' keyed by member name. Uploaded
+// images are center-cropped to square, resized to 150x150, encoded as JPEG
+// data URIs — all client-side, nothing sent to the server.
+
+function getAvatarOverrides() {
+    try {
+        return JSON.parse(localStorage.getItem('avatarOverrides') || '{}');
+    } catch (e) {
+        return {};
+    }
+}
+
+function saveAvatarOverride(name, dataUri) {
+    const overrides = getAvatarOverrides();
+    if (dataUri) {
+        overrides[name] = dataUri;
+    } else {
+        delete overrides[name];
+    }
+    localStorage.setItem('avatarOverrides', JSON.stringify(overrides));
+}
+
+function avatarSrcFor(member, index) {
+    const overrides = getAvatarOverrides();
+    if (overrides[member.name]) return overrides[member.name];
+    if (member.avatar) return member.avatar;
+    return `https://i.pravatar.cc/150?img=${(index % 70) + 1}`;
+}
+
 function buildMemberCards() {
     const row = document.getElementById('members-row');
     row.innerHTML = '';
@@ -153,12 +351,15 @@ function buildMemberCards() {
         td.width = '322';
         td.className = 'member-card';
 
-        const avatarHtml = member.avatar
-            ? `<img class="avatar-img" src="${member.avatar}" alt="${member.name}" />`
-            : `<img class="avatar-img" src="https://i.pravatar.cc/150?img=${(index % 70) + 1}" alt="${member.name}" />`;
+        const avatarSrc = avatarSrcFor(member, index);
 
         td.innerHTML = `
-            <span class="avatar">${avatarHtml}</span>
+            <span class="avatar">
+                <span class="avatar-wrap" data-member="${escapeHtml(member.name)}">
+                    <img class="avatar-img" src="${avatarSrc}" alt="${escapeHtml(member.name)}" />
+                    <span class="camera-overlay">&#128247;</span>
+                </span>
+            </span>
             <h1>${escapeHtml(member.name)}</h1>
             <p id="member-${index}-btc" class="btc-amount btc-box"></p>
             <font color="green"><h3 id="member-${index}-usd" class="usd-amount">$00,000.00</h3></font>
@@ -166,6 +367,53 @@ function buildMemberCards() {
         `;
         row.appendChild(td);
     });
+
+    wireAvatarUploads();
+}
+
+// ── Avatar Upload (hover camera -> pick file -> crop/resize/encode) ─
+function wireAvatarUploads() {
+    document.querySelectorAll('.avatar-wrap').forEach(wrap => {
+        wrap.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.display = 'none';
+            input.addEventListener('change', () => {
+                const file = input.files && input.files[0];
+                if (!file) return;
+                processAvatarFile(file, wrap.dataset.member);
+            });
+            document.body.appendChild(input);
+            input.click();
+            input.remove();
+        });
+    });
+}
+
+function processAvatarFile(file, memberName) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+            // Center-crop to square, then scale to 150x150
+            const side = Math.min(img.width, img.height);
+            const sx = (img.width - side) / 2;
+            const sy = (img.height - side) / 2;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 150;
+            canvas.height = 150;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, 150, 150);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            saveAvatarOverride(memberName, dataUrl);
+            buildMemberCards();
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
 }
 
 function escapeHtml(text) {
@@ -174,22 +422,25 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ── Price Fetching ─────────────────────────────────────────────
+// ── Price Fetching (all via server proxy — no CORS issues) ─────
+const CG = '/api/cg'; // proxied to https://api.coingecko.com/api/v3
+
+async function fetchJSON(url, opts) {
+    const resp = await fetch(url, opts);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${url}`);
+    return resp.json();
+}
+
 async function fetchPriceFromAPI() {
     const source = dashboardConfig.priceSource;
 
     if (source.type === 'custom' && source.apiUrl) {
-        // Custom API: proxy through nginx
+        // Custom API: frontend calls /api/price, nginx proxies to the
+        // configured upstream (URL + Host header resolved server-side)
         try {
-            const headers = {};
-            if (source.apiKey) {
-                headers['X-API-Key'] = source.apiKey;
-            }
-            const resp = await fetch('/api/price', { headers });
-            const data = await resp.json();
+            const data = await fetchJSON('/api/price');
 
-            // Expect: { price: number, change24h: number }
-            // or CoinGecko-compatible: { bitcoin: { usd, usd_24h_change } }
+            // Accept either {price, change24h} or CoinGecko-compatible shape
             let currentPrice, hourChangePercentage;
             if (data.bitcoin) {
                 currentPrice = data.bitcoin.usd;
@@ -200,7 +451,6 @@ async function fetchPriceFromAPI() {
             } else {
                 throw new Error('Unexpected API response format');
             }
-
             return formatPriceData(currentPrice, hourChangePercentage);
         } catch (e) {
             console.error('Custom price API error:', e);
@@ -208,15 +458,36 @@ async function fetchPriceFromAPI() {
         }
     }
 
-    // Default: CoinGecko free API
+    if (source.type === 'coinbase') {
+        // Coinbase (default): spot price now vs 24h ago via the proxy
+        // /api/cb/prices/BTC-USD/spot and /spot?date=... (24h-ago price)
+        try {
+            const now = await fetchJSON('/api/cb/prices/BTC-USD/spot');
+            const currentPrice = parseFloat(now.data.amount);
+
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            const dateStr = d.toISOString().split('T')[0];
+            const then = await fetchJSON(`/api/cb/prices/BTC-USD/spot?date=${dateStr}`);
+            const thenPrice = parseFloat(then.data.amount);
+
+            const hourChangePercentage = thenPrice > 0
+                ? ((currentPrice - thenPrice) / thenPrice) * 100
+                : 0;
+
+            return formatPriceData(currentPrice, hourChangePercentage);
+        } catch (e) {
+            console.error('Coinbase price error:', e);
+            return null;
+        }
+    }
+
+    // CoinGecko via proxy
     try {
-        const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
-        const data = await resp.json();
-        const currentPrice = data.bitcoin.usd;
-        const hourChangePercentage = data.bitcoin.usd_24h_change;
-        return formatPriceData(currentPrice, hourChangePercentage);
+        const data = await fetchJSON(`${CG}/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true`);
+        return formatPriceData(data.bitcoin.usd, data.bitcoin.usd_24h_change);
     } catch (e) {
-        console.error('CoinGecko API error:', e);
+        console.error('CoinGecko price error:', e);
         return null;
     }
 }
@@ -290,19 +561,16 @@ function updatePrice() {
     }).catch(e => console.error('Price update error:', e));
 }
 
-// ── Historical Prices ──────────────────────────────────────────
+// ── Historical Prices (CoinGecko via proxy) ────────────────────
 async function fetchHistoricalPrice(daysAgo) {
     const date = new Date();
     date.setDate(date.getDate() - daysAgo);
     const dd = ("0" + date.getDate()).slice(-2);
     const mm = ("0" + (date.getMonth() + 1)).slice(-2);
     const yyyy = date.getFullYear();
-    const dateStr = `${dd}-${mm}-${yyyy}`;
 
     try {
-        // Use CoinGecko for historical (custom APIs typically don't support this)
-        const resp = await fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/history?date=${dateStr}`);
-        const data = await resp.json();
+        const data = await fetchJSON(`${CG}/coins/bitcoin/history?date=${dd}-${mm}-${yyyy}`);
         return data.market_data?.current_price?.usd ?? 0;
     } catch (e) {
         console.error('Historical price error:', e);
@@ -323,60 +591,155 @@ async function updateHistoricalPrices() {
     if (year) document.getElementById('price-last-year').innerText = fmt(year);
 }
 
-// ── Chart ──────────────────────────────────────────────────────
-async function fetchHistoricPrices() {
+// ── Pexels Background Rotation ─────────────────────────────────
+let pexelsPage = 1;
+
+async function fetchPexelsBackground() {
+    if (!dashboardConfig.pexels?.enabled) return;
     try {
-        const resp = await fetch('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30');
-        const data = await resp.json();
-        const prices = data.prices.map(p => ({
-            date: new Date(p[0]),
-            value: p[1]
-        }));
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const filtered = [];
-        const seen = new Set();
-        prices.forEach((price, i) => {
-            const d = new Date(price.date);
-            d.setHours(0, 0, 0, 0);
-            const key = d.toISOString().split('T')[0];
-            if ((i % 10 === 0 || d.getTime() === today.getTime()) && !seen.has(key)) {
-                filtered.push(price);
-                seen.add(key);
-            }
-        });
-
-        return filtered.map(p => ({
-            date: p.date.toISOString().split('T')[0].substring(5).replace('-', '.'),
-            value: p.value
-        }));
+        // Random page to vary results; per_page=15 for variety.
+        // Query is "landscape" (per Wahid) + orientation=landscape for
+        // wide photos that look good as a page background.
+        const page = pexelsPage;
+        pexelsPage = pexelsPage === 10 ? 1 : pexelsPage + 1;
+        const headers = {};
+        const key = (dashboardConfig.pexels.apiKey || '').trim();
+        if (key) headers['X-Pexels-Key'] = key;
+        const data = await fetchJSON(
+            `/api/pexels/search?query=landscape&orientation=landscape&per_page=15&page=${page}`,
+            { headers }
+        );
+        const photos = data.photos || [];
+        if (photos.length === 0) return;
+        const photo = photos[Math.floor(Math.random() * photos.length)];
+        const url = photo.src && (photo.src.large2x || photo.src.original);
+        if (!url) return;
+        // Preload, then fade the body background
+        const img = new Image();
+        img.onload = () => {
+            document.body.style.backgroundImage = `url("${url}")`;
+            document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundPosition = 'center';
+            document.body.style.backgroundAttachment = 'fixed';
+            updatePexelsOverlay();
+        };
+        img.src = url;
     } catch (e) {
-        console.error('Chart data error:', e);
-        return [];
+        console.error('Pexels background error:', e);
     }
+}
+
+// ── Chart (multi-window: 30d, 1y, 10y — rotate) ───────────────
+const CHART_WINDOWS = [
+    { key: '30d', title: '30-day Price Graph', days: 30, source: 'coingecko', logScale: false },
+    { key: '1y', title: '1-year Price Graph', days: 365, source: 'coingecko', logScale: false },
+    { key: '10y', title: '10-year Price Graph', days: 3650, source: 'blockchain', logScale: true },
+];
+let chartDataCache = { '30d': null, '1y': null, '10y': null };
+let currentChartIdx = 0;
+let chartTitleEl = null;
+let myChart = null;
+
+function chartTitleFor(key) {
+    const w = CHART_WINDOWS.find(x => x.key === key);
+    return w ? w.title : 'Price Graph';
+}
+
+async function fetchChartWindow(window) {
+    if (window.source === 'blockchain') {
+        // Blockchain.com: /api/bc/market-price?timespan=10years&format=json
+        const data = await fetchJSON(`/api/bc/market-price?timespan=10years&format=json`);
+        // values: [{x: unix_seconds, y: price}]
+        return data.values.map(p => ({
+            date: new Date(p.x * 1000).toISOString().split('T')[0].substring(5).replace('-', '.'),
+            value: p.y
+        }));
+    }
+    // CoinGecko (30d, 1y): /api/cg/coins/bitcoin/market_chart?days=N
+    const data = await fetchJSON(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=${window.days}`);
+    const prices = data.prices.map(p => ({ date: new Date(p[0]), value: p[1] }));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const filtered = [];
+    const seen = new Set();
+    prices.forEach((price, i) => {
+        const d = new Date(price.date);
+        d.setHours(0, 0, 0, 0);
+        const key = d.toISOString().split('T')[0];
+        // For long windows, thin the points: sample every N, keep today
+        const step = window.days >= 365 ? 30 : 10;
+        if ((i % step === 0 || d.getTime() === today.getTime()) && !seen.has(key)) {
+            filtered.push(price);
+            seen.add(key);
+        }
+    });
+    return filtered.map(p => ({
+        date: p.date.toISOString().split('T')[0].substring(5).replace('-', '.'),
+        value: p.value
+    }));
+}
+
+async function refreshChartData() {
+    for (const w of CHART_WINDOWS) {
+        try {
+            chartDataCache[w.key] = await fetchChartWindow(w);
+        } catch (e) {
+            console.error(`Chart data error (${w.key}):`, e);
+            chartDataCache[w.key] = null;
+        }
+    }
+    renderCurrentChart();
+}
+
+function renderCurrentChart() {
+    const w = CHART_WINDOWS[currentChartIdx];
+    const prices = chartDataCache[w.key];
+    if (chartTitleEl) chartTitleEl.innerText = chartTitleFor(w.key);
+    if (!myChart) return;
+    applyChartTheme();
+    // Log scale for the 10-year window so early (sub-$1k) prices are visible
+    myChart.options.scales.yAxes[0].type = w.logScale ? 'logarithmic' : 'linear';
+    if (prices) {
+        myChart.data.labels = prices.map(p => p.date);
+        myChart.data.datasets[0].data = prices.map(p => p.value);
+    } else {
+        myChart.data.labels = [];
+        myChart.data.datasets[0].data = [];
+    }
+    myChart.update();
+}
+
+function applyChartTheme() {
+    if (!myChart) return;
+    const dark = document.body.classList.contains('dark');
+    const tickColor = dark ? '#aaa' : '#666';
+    const gridColor = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    myChart.options.scales.yAxes[0].ticks.fontColor = tickColor;
+    myChart.options.scales.xAxes[0].ticks.fontColor = tickColor;
+    myChart.options.scales.yAxes[0].gridLines.color = gridColor;
+    myChart.options.scales.xAxes[0].gridLines.color = gridColor;
+}
+
+function rotateChart() {
+    currentChartIdx = (currentChartIdx + 1) % CHART_WINDOWS.length;
+    renderCurrentChart();
 }
 
 // ── Initialize ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-    // Load config first
     await loadConfig();
 
-    // Set title
     document.getElementById('dashboard-heading').innerText = dashboardConfig.title;
     document.title = dashboardConfig.title;
 
-    // Build member cards
     buildMemberCards();
 
-    // Populate BTC amounts
     dashboardConfig.familyMembers.forEach((member, index) => {
         const el = document.getElementById(`member-${index}-btc`);
         if (el) el.innerText = member.btcAmount.toFixed(8) + " BTC";
     });
 
-    // Initialize chart
+    chartTitleEl = document.getElementById('chart-title');
     var ctx = document.getElementById("myChart").getContext('2d');
     var gradientStroke = ctx.createLinearGradient(0, 0, 2000, 0);
     gradientStroke.addColorStop(0, "rgba(124, 77, 255, .3)");
@@ -384,7 +747,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     gradientStroke.addColorStop(0.6, "rgba(0, 188, 212, .5)");
     gradientStroke.addColorStop(1, "rgba(29, 233, 182, .6)");
 
-    var myChart = new Chart(ctx, {
+    myChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
@@ -413,29 +776,38 @@ document.addEventListener('DOMContentLoaded', async () => {
                 yAxes: [{
                     ticks: {
                         beginAtZero: false,
-                        callback: function(value) { return '$' + (value / 1000).toFixed(0) + 'k'; }
-                    }
+                        fontColor: '#666',
+                        callback: function(value) {
+                            if (myChart && myChart.options.scales.yAxes[0].type === 'logarithmic') {
+                                if (value >= 1000) return '$' + (value / 1000).toFixed(0) + 'k';
+                                return '$' + Math.round(value);
+                            }
+                            return '$' + (value / 1000).toFixed(0) + 'k';
+                        }
+                    },
+                    gridLines: { color: 'rgba(0,0,0,0.08)' }
                 }],
                 xAxes: [{
-                    ticks: { autoSkip: true, maxTicksLimit: 10 }
+                    ticks: { autoSkip: true, maxTicksLimit: 10, fontColor: '#666' },
+                    gridLines: { color: 'rgba(0,0,0,0.08)' }
                 }]
             }
         }
     });
 
-    fetchHistoricPrices().then(prices => {
-        myChart.data.labels = prices.map(p => p.date);
-        myChart.data.datasets[0].data = prices.map(p => p.value);
-        myChart.update();
-    });
-
-    // Initial data load
+    refreshChartData();
     updatePrice();
     updateHistoricalPrices();
+    fetchPexelsBackground();
+    updatePexelsOverlay();
 
-    // Refresh every 99 seconds (CoinGecko free tier safe)
-    setInterval(updatePrice, 99000);
-    setInterval(updateHistoricalPrices, 99000);
+    // Rotate chart window every 60s; refresh all data + prices every 120s
+    setInterval(rotateChart, 60000);
+    setInterval(refreshChartData, 120000);
+    setInterval(updatePrice, 120000);
+    setInterval(updateHistoricalPrices, 120000);
+    // Rotate Pexels background every 5 minutes (if enabled)
+    setInterval(fetchPexelsBackground, 300000);
 });
 </script>
 </body>

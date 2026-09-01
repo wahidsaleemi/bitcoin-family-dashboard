@@ -8,7 +8,7 @@ export const manifest = setupManifest({
   packageRepo: 'https://github.com/wahidsaleemi/bitcoin-family-dashboard-startos',
   upstreamRepo: 'https://github.com/wahidsaleemi/bitcoin-family-dashboard',
   marketingUrl: 'https://github.com/wahidsaleemi/bitcoin-family-dashboard',
-  donationUrl: null,
+  donationUrl: 'https://coinos.io/pay/wahid',
   description: { short, long },
   volumes: ['main'],
   images: {

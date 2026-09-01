@@ -3,26 +3,54 @@ import { sdk } from './sdk'
 import { uiPort } from './utils'
 import { storeJson } from './fileModels/store.json'
 
+const COINBASE_SPOT_URL = 'https://api.coinbase.com/v2/prices/BTC-USD/spot'
+const COINBASE_HISTORIC_URL = 'https://api.coinbase.com/v2/prices/BTC-USD/historic'
+const COINGECKO_PRICE_URL =
+  'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true'
+
 export const main = sdk.setupMain(async ({ effects }) => {
   console.info(i18n('Starting Bitcoin Family Dashboard!'))
 
-  // Read config to pass price source settings to the container
+  // Resolve the price upstream so nginx can proxy browser requests to it.
+  // Browsers can't call price APIs directly (CORS), but the nginx
+  // subcontainer can — CORS is a browser-enforced policy.
   const config = await storeJson.read().const(effects)
+  const source = config?.priceSource
+  const type = source?.type ?? 'coinbase'
+  const isCustom = type === 'custom' && !!source?.apiUrl?.trim()
+  const pexelsKey = config?.pexels?.apiKey?.trim() ?? ''
 
-  const priceApiUrl = config?.priceSource?.apiUrl ?? ''
-  const priceApiKey = config?.priceSource?.apiKey ?? ''
-  const priceSource = config?.priceSource?.type ?? 'coingecko'
-
-  // For custom price source, parse the URL to get host for proxy header
-  let priceApiHost = ''
-  if (priceSource === 'custom' && priceApiUrl) {
+  function safeHost(url: string): string {
     try {
-      const parsed = new URL(priceApiUrl)
-      priceApiHost = parsed.host
+      return new URL(url).host
     } catch {
-      priceApiHost = priceApiUrl
+      return url.replace(/^https?:\/\//, '').split('/')[0]
     }
   }
+
+  let priceUpstream: string
+  let priceHost: string
+
+  switch (type) {
+    case 'custom':
+      priceUpstream = source!.apiUrl.trim()
+      priceHost = safeHost(source!.apiUrl.trim())
+      break
+    case 'coingecko':
+      priceUpstream = COINGECKO_PRICE_URL
+      priceHost = 'api.coingecko.com'
+      break
+    case 'coinbase':
+    default:
+      priceUpstream = COINBASE_SPOT_URL
+      priceHost = 'api.coinbase.com'
+      break
+  }
+
+  // Startup diagnostics — plain strings (not user-facing UI text)
+  console.info(`Price source: ${type}${isCustom ? ` (${priceUpstream})` : ''}`)
+  console.info(`Proxy upstream: ${priceUpstream} (Host: ${priceHost})`)
+  console.info(`Web interface will listen on port ${uiPort}`)
 
   return sdk.Daemons.of(effects).addDaemon('web', {
     subcontainer: sdk.SubContainer.of(
@@ -37,12 +65,11 @@ export const main = sdk.setupMain(async ({ effects }) => {
       'nginx',
     ),
     exec: {
-      command: ['/docker-entrypoint.sh'],
+      command: sdk.useEntrypoint(['nginx', '-g', 'daemon off;']),
       env: {
-        PRICE_SOURCE: priceSource,
-        PRICE_API_URL: priceApiUrl,
-        PRICE_API_KEY: priceApiKey,
-        PRICE_API_HOST: priceApiHost,
+        PRICE_UPSTREAM: priceUpstream,
+        PRICE_HOST: priceHost,
+        PEXELS_API_KEY: pexelsKey,
       },
     },
     ready: {
