@@ -4,351 +4,48 @@
     <title>Bitcoin Family Dashboard</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- Include your CSS files -->
     <link rel="stylesheet" href="assets/css/main.css" />
     <link rel="stylesheet" href="assets/css/template.css" />
     <link rel="icon" href="favicon.png" type="image/x-icon">
-
-    <!-- Include Chart.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.2/Chart.bundle.min.js" integrity="sha256-XF29CBwU1MWLaGEnsELogU6Y6rcc5nCkhhx89nFMIDQ=" crossorigin="anonymous"></script>
-
-    <script>
-    // Function to toggle full-screen mode
-    function toggleFullScreen() {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen();
-        } else if (document.exitFullscreen) {
-            document.exitFullscreen(); 
+    <style>
+        .dashboard-title {
+            text-align: center;
+            padding: 20px 0 10px;
         }
-    }
-
-    // Fetch historic prices for the chart
-    function fetchHistoricPrices() {
-        return fetch('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30')
-            .then(response => response.json())
-            .then(data => {
-                const prices = data.prices.map(price => ({
-                    date: new Date(price[0]),
-                    value: price[1]
-                }));
-
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                // Filter data points to reduce clutter
-                const filteredPrices = [];
-                const uniqueDates = new Set();
-                prices.forEach((price, index) => {
-                    const priceDate = new Date(price.date);
-                    priceDate.setHours(0, 0, 0, 0);
-                    const dateString = priceDate.toISOString().split('T')[0];
-                    if ((index % 10 === 0 || priceDate.getTime() === today.getTime()) && !uniqueDates.has(dateString)) {
-                        filteredPrices.push(price);
-                        uniqueDates.add(dateString);
-                    }
-                });
-
-                const formattedPrices = filteredPrices.map(price => ({
-                    date: price.date.toISOString().split('T')[0].substring(5).replace('-', '.'),
-                    value: price.value
-                }));
-
-                return formattedPrices;
-            });
-    }
-
-    // Update the chart with new data
-    function updateChart(chart, prices) {
-        const labels = prices.map(price => price.date);
-        const values = prices.map(price => price.value);
-
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = values;
-        chart.update();
-    }
-
-    // Fetch the current Bitcoin price from the API
-    function fetchPriceFromAPI() {
-        return fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true')
-            .then(response => response.json())
-            .then(data => {
-                const currentPrice = data.bitcoin.usd;
-                const hourChangePercentage = data.bitcoin.usd_24h_change.toFixed(2);
-                const hourChangeColor = hourChangePercentage > 0 ? "green" : hourChangePercentage < 0 ? "red" : "gray";
-                const hourChangeSign = hourChangePercentage > 0 ? "+" : "";
-                const arrowDirection = hourChangePercentage > 0 ? "▲" : hourChangePercentage < 0 ? "▼" : "■";
-
-                const priceData = {
-                    currentPrice: currentPrice,
-                    hourChangePercentage: hourChangePercentage,
-                    hourChangeColor: hourChangeColor,
-                    hourChangeSign: hourChangeSign,
-                    arrowDirection: arrowDirection,
-                    timestamp: new Date().getTime()
-                };
-                localStorage.setItem('priceData', JSON.stringify(priceData));
-                return priceData;
-            });
-    }
-
-    // Get cached price data or fetch new data if outdated
-    function getPriceData() {
-        const cachedData = localStorage.getItem('priceData');
-        if (cachedData) {
-            const parsedData = JSON.parse(cachedData);
-            const now = new Date().getTime();
-            if (now - parsedData.timestamp < 99000) { // 99 seconds
-                return Promise.resolve(parsedData);
-            }
+        .dashboard-title h1 {
+            font-size: 2em;
+            margin: 0;
+            color: #f7931a;
+            letter-spacing: 1px;
         }
-        return fetchPriceFromAPI();
-    }
-
-    // Define family members and their assets
-    const familyMembers = [
-        {
-            name: "Alice",
-            avatar: "https://i.pravatar.cc/150?img=5",
-            btcAmount: 0.12345678, // Replace with actual BTC amount
-            avgCost: 50000.00,     // Replace with actual average cost
-            elementIds: {
-                btc: 'alice-btc',
-                usd: 'alice-usd',
-                pl: 'alice-pl'
-            }
-        },
-        {
-            name: "Bob",
-            avatar: "https://i.pravatar.cc/150?img=12",
-            btcAmount: 0.23456789,
-            avgCost: 55000.00,
-            elementIds: {
-                btc: 'bob-btc',
-                usd: 'bob-usd',
-                pl: 'bob-pl'
-            }
-        },
-        {
-            name: "Charlie",
-            avatar: "https://i.pravatar.cc/150?img=20",
-            btcAmount: 0.34567890,
-            avgCost: 60000.00,
-            elementIds: {
-                btc: 'charlie-btc',
-                usd: 'charlie-usd',
-                pl: 'charlie-pl'
-            }
-        },
-        {
-            name: "Dana",
-            avatar: "https://i.pravatar.cc/150?img=25",
-            btcAmount: 0.45678901,
-            avgCost: 65000.00,
-            elementIds: {
-                btc: 'dana-btc',
-                usd: 'dana-usd',
-                pl: 'dana-pl'
-            }
+        .avatar-img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #f7931a;
         }
-    ];
-
-    // Update price and calculations for each family member
-    function updatePrice() {
-        getPriceData().then(data => {
-            const { currentPrice, hourChangePercentage, hourChangeColor, hourChangeSign, arrowDirection } = data;
-
-            // Update the live icon and current price
-            document.getElementById('live-icon').style.backgroundColor = hourChangeColor;
-            document.getElementById('current-price').innerText = "$" + currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-            // Update USD amounts and P&L for each family member
-            familyMembers.forEach(member => {
-                const usdAmount = member.btcAmount * currentPrice;
-                const usdAmountFormatted = "$" + usdAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                document.getElementById(member.elementIds.usd).innerText = usdAmountFormatted;
-                document.getElementById(member.elementIds.usd).style.color = hourChangeColor;
-
-                const totalPL = usdAmount - (member.btcAmount * member.avgCost);
-                const totalPLFormatted = `${totalPL >= 0 ? "+" : ""}$${totalPL.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                document.getElementById(member.elementIds.pl).innerText = totalPLFormatted;
-                document.getElementById(member.elementIds.pl).style.color = totalPL >= 0 ? "green" : "red";
-            });
-
-            // Update 24-hr change section
-            document.getElementById('24hr-change').innerHTML = `<font color="${hourChangeColor}">${hourChangeSign}${hourChangePercentage}% <span class="arrow">${arrowDirection}</span></font>`;
-
-            // Update Avg Cost from the first member's avgCost (as an example)
-            const avgCost = familyMembers[0].avgCost;
-            document.getElementById('avg-cost').innerText = "$" + avgCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }).catch(error => console.error('Error fetching the current price:', error));
-    }
-
-    // Function to get the date string in 'dd-mm-yyyy' format required by CoinGecko API
-    function getDateString(daysAgo) {
-        const date = new Date();
-        date.setDate(date.getDate() - daysAgo);
-        const day = ("0" + date.getDate()).slice(-2);
-        const month = ("0" + (date.getMonth() + 1)).slice(-2); // Months are zero-indexed
-        const year = date.getFullYear();
-        return `${day}-${month}-${year}`;
-    }
-
-    // Fetch historical price for a given date
-    function fetchHistoricalPrice(daysAgo) {
-        const dateString = getDateString(daysAgo);
-        return fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/history?date=${dateString}`)
-            .then(response => response.json())
-            .then(data => {
-                return data.market_data.current_price.usd;
-            })
-            .catch(error => console.error('Error fetching historical price:', error));
-    }
-
-    // Update historical prices
-    function updateHistoricalPrices() {
-        // Last Week (7 days ago)
-        fetchHistoricalPrice(7).then(price => {
-            document.getElementById('price-last-week').innerText = "$" + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        });
-
-        // Last Month (30 days ago)
-        fetchHistoricalPrice(30).then(price => {
-            document.getElementById('price-last-month').innerText = "$" + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        });
-
-        // Last Year (365 days ago)
-        fetchHistoricalPrice(365).then(price => {
-            document.getElementById('price-last-year').innerText = "$" + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        });
-    }
-
-    // Initialize the dashboard when the DOM is loaded
-    document.addEventListener('DOMContentLoaded', (event) => {
-        // Initialize the chart
-        var ctx = document.getElementById("myChart").getContext('2d');
-        var gradientStroke = ctx.createLinearGradient(0, 0, 2000, 0);
-        gradientStroke.addColorStop(0, "rgba(124, 77, 255, .3)");
-        gradientStroke.addColorStop(0.3, "rgba(68, 138, 255, .3)");
-        gradientStroke.addColorStop(0.6, "rgba(0, 188, 212, .5)");
-        gradientStroke.addColorStop(1, "rgba(29, 233, 182, .6)");
-
-        var myChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Price USD',
-                    data: [],
-                    lineTension: 0,
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    backgroundColor: gradientStroke,
-                    borderWidth: 1,
-                    pointRadius: 3,
-                    pointHitRadius: 5
-                }]
-            },
-            options: {
-                legend: {
-                    display: false
-                },
-                tooltips: {
-                    callbacks: {
-                        title: function(tooltipItems, data) {
-                            return "📅 " + tooltipItems[0].xLabel;
-                        },
-                        label: function(tooltipItem, data) {
-                            return "$" + parseFloat(tooltipItem.yLabel).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                        }
-                    }
-                },
-                scales: {
-                    yAxes: [{
-                        ticks: {
-                            beginAtZero: false,
-                            callback: function(value, index, values) {
-                                return '$' + (value / 1000).toFixed(0) + 'k';
-                            }
-                        }
-                    }],
-                    xAxes: [{
-                        ticks: {
-                            autoSkip: true,
-                            maxTicksLimit: 10,
-                            callback: function(value, index, values) {
-                                return value;
-                            }
-                        }
-                    }]
-                }
-            }
-        });
-
-        // Fetch and update the chart data
-        fetchHistoricPrices().then(prices => {
-            updateChart(myChart, prices);
-        });
-
-        // Populate BTC amounts for each family member
-        familyMembers.forEach(member => {
-            document.getElementById(member.elementIds.btc).innerText = member.btcAmount.toFixed(8) + " BTC";
-        });
-
-        // Initial calls to set values
-        updatePrice();
-        updateHistoricalPrices();
-
-        // Update every 99 seconds
-        setInterval(updatePrice, 99000);
-        setInterval(updateHistoricalPrices, 99000);
-    });
-    </script>
+        .member-card {
+            text-align: center;
+            padding: 10px;
+        }
+    </style>
     <noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
 </head>
 <body>
-
     <div id="fullscreen-icon" onclick="toggleFullScreen()"></div>
 
-    <br /><br />
-    <center><img src="https://bitcoin.org/img/icons/opengraph.png" height="80"></center>
+    <div class="dashboard-title">
+        <h1 id="dashboard-heading">Bitcoin Family Dashboard</h1>
+    </div>
 
     <div id="wrapper" class="bottom-space">
         <section id="main">
             <header>
-                <table width="*">
-                    <tr>
-                        <!-- Family Member Sections -->
-                        <!-- Alice -->
-                        <td width="322">
-                            <span class="avatar"><img src="https://i.pravatar.cc/150?img=5" alt="Alice" /></span>
-                            <h1>Alice</h1>
-                            <p id="alice-btc" class="btc-amount btc-box"></p>
-                            <font color="green"><h3 id="alice-usd" class="usd-amount">$00,000.00</h3></font>
-                            <p id="alice-pl" class="pl-section"></p>
-                        </td>
-                        <!-- Bob -->
-                        <td width="322">
-                            <span class="avatar"><img src="https://i.pravatar.cc/150?img=12" alt="Bob" /></span>
-                            <h1>Bob</h1>
-                            <p id="bob-btc" class="btc-amount btc-box"></p>
-                            <font color="green"><h3 id="bob-usd" class="usd-amount">$00,000.00</h3></font>
-                            <p id="bob-pl" class="pl-section"></p>
-                        </td>
-                        <!-- Charlie -->
-                        <td width="322">
-                            <span class="avatar"><img src="https://i.pravatar.cc/150?img=49" alt="Charlie" /></span>
-                            <h1>Charlie</h1>
-                            <p id="charlie-btc" class="btc-amount btc-box"></p>
-                            <font color="green"><h3 id="charlie-usd" class="usd-amount">$00,000.00</h3></font>
-                            <p id="charlie-pl" class="pl-section"></p>
-                        </td>
-                        <!-- Dana -->
-                        <td width="322">
-                            <span class="avatar"><img src="https://i.pravatar.cc/150?img=25" alt="Dana" /></span>
-                            <h1>Dana</h1>
-                            <p id="dana-btc" class="btc-amount btc-box"></p>
-                            <font color="green"><h3 id="dana-usd" class="usd-amount">$00,000.00</h3></font>
-                            <p id="dana-pl" class="pl-section"></p>
-                        </td>
+                <table width="*" id="members-table">
+                    <tr id="members-row">
+                        <!-- Dynamically populated from config -->
                     </tr>
                 </table>
                 <br/><br/>
@@ -371,7 +68,7 @@
                         <td width="150">
                             <h2 class="section-title">24-hr Change</h2>
                             <span id="24hr-change">
-                                <font color="green">+0.00% <span class="arrow">▲</span></font>
+                                <font color="green">+0.00% <span class="arrow">&#9650;</span></font>
                             </span>
                         </td>
                         <td width="150">
@@ -397,5 +94,349 @@
             </header>
         </section>
     </div>
+
+<script>
+// ── Configuration ───────────────────────────────────────────────
+let dashboardConfig = null;
+
+// Default Satoshi config (used if /config.json is missing)
+const DEFAULT_CONFIG = {
+    title: "Bitcoin Family Dashboard",
+    familyMembers: [
+        { name: "Satoshi", avatar: "", btcAmount: 0.125, avgCost: 40000 }
+    ],
+    priceSource: { type: "coingecko", apiUrl: "", apiKey: "" }
+};
+
+// ── Load Config ─────────────────────────────────────────────────
+async function loadConfig() {
+    try {
+        const resp = await fetch('/config.json');
+        if (resp.ok) {
+            dashboardConfig = await resp.json();
+        } else {
+            dashboardConfig = DEFAULT_CONFIG;
+        }
+    } catch (e) {
+        console.warn('Could not load config, using defaults:', e);
+        dashboardConfig = DEFAULT_CONFIG;
+    }
+    // Ensure required fields
+    if (!dashboardConfig.title) dashboardConfig.title = "Bitcoin Family Dashboard";
+    if (!Array.isArray(dashboardConfig.familyMembers)) dashboardConfig.familyMembers = [];
+    if (!dashboardConfig.priceSource) dashboardConfig.priceSource = { type: "coingecko", apiUrl: "", apiKey: "" };
+}
+
+// ── Toggle Fullscreen ──────────────────────────────────────────
+function toggleFullScreen() {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+    } else if (document.exitFullscreen) {
+        document.exitFullscreen();
+    }
+}
+
+// ── Build Family Member Cards ──────────────────────────────────
+function buildMemberCards() {
+    const row = document.getElementById('members-row');
+    row.innerHTML = '';
+
+    const members = dashboardConfig.familyMembers;
+
+    if (members.length === 0) {
+        row.innerHTML = '<td style="text-align:center;color:#999;">No family members configured. Use Actions to add members.</td>';
+        return;
+    }
+
+    members.forEach((member, index) => {
+        const td = document.createElement('td');
+        td.width = '322';
+        td.className = 'member-card';
+
+        const avatarHtml = member.avatar
+            ? `<img class="avatar-img" src="${member.avatar}" alt="${member.name}" />`
+            : `<img class="avatar-img" src="https://i.pravatar.cc/150?img=${(index % 70) + 1}" alt="${member.name}" />`;
+
+        td.innerHTML = `
+            <span class="avatar">${avatarHtml}</span>
+            <h1>${escapeHtml(member.name)}</h1>
+            <p id="member-${index}-btc" class="btc-amount btc-box"></p>
+            <font color="green"><h3 id="member-${index}-usd" class="usd-amount">$00,000.00</h3></font>
+            <p id="member-${index}-pl" class="pl-section"></p>
+        `;
+        row.appendChild(td);
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ── Price Fetching ─────────────────────────────────────────────
+async function fetchPriceFromAPI() {
+    const source = dashboardConfig.priceSource;
+
+    if (source.type === 'custom' && source.apiUrl) {
+        // Custom API: proxy through nginx
+        try {
+            const headers = {};
+            if (source.apiKey) {
+                headers['X-API-Key'] = source.apiKey;
+            }
+            const resp = await fetch('/api/price', { headers });
+            const data = await resp.json();
+
+            // Expect: { price: number, change24h: number }
+            // or CoinGecko-compatible: { bitcoin: { usd, usd_24h_change } }
+            let currentPrice, hourChangePercentage;
+            if (data.bitcoin) {
+                currentPrice = data.bitcoin.usd;
+                hourChangePercentage = data.bitcoin.usd_24h_change;
+            } else if (data.price !== undefined) {
+                currentPrice = data.price;
+                hourChangePercentage = data.change24h ?? 0;
+            } else {
+                throw new Error('Unexpected API response format');
+            }
+
+            return formatPriceData(currentPrice, hourChangePercentage);
+        } catch (e) {
+            console.error('Custom price API error:', e);
+            return null;
+        }
+    }
+
+    // Default: CoinGecko free API
+    try {
+        const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
+        const data = await resp.json();
+        const currentPrice = data.bitcoin.usd;
+        const hourChangePercentage = data.bitcoin.usd_24h_change;
+        return formatPriceData(currentPrice, hourChangePercentage);
+    } catch (e) {
+        console.error('CoinGecko API error:', e);
+        return null;
+    }
+}
+
+function formatPriceData(currentPrice, hourChangePercentage) {
+    const pct = parseFloat(hourChangePercentage).toFixed(2);
+    const color = pct > 0 ? "green" : pct < 0 ? "red" : "gray";
+    const sign = pct > 0 ? "+" : "";
+    const arrow = pct > 0 ? "\u25B2" : pct < 0 ? "\u25BC" : "\u25A0";
+
+    return {
+        currentPrice,
+        hourChangePercentage: pct,
+        hourChangeColor: color,
+        hourChangeSign: sign,
+        arrowDirection: arrow,
+        timestamp: Date.now()
+    };
+}
+
+// ── Cached Price ───────────────────────────────────────────────
+function getPriceData() {
+    try {
+        const cached = localStorage.getItem('priceData');
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Date.now() - parsed.timestamp < 99000) {
+                return Promise.resolve(parsed);
+            }
+        }
+    } catch (e) {}
+    return fetchPriceFromAPI();
+}
+
+// ── Update Dashboard ───────────────────────────────────────────
+function updatePrice() {
+    getPriceData().then(data => {
+        if (!data) return;
+
+        const { currentPrice, hourChangePercentage, hourChangeColor, hourChangeSign, arrowDirection } = data;
+
+        document.getElementById('live-icon').style.backgroundColor = hourChangeColor;
+        document.getElementById('current-price').innerText =
+            "$" + currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        const members = dashboardConfig.familyMembers;
+        members.forEach((member, index) => {
+            const usd = member.btcAmount * currentPrice;
+            const usdEl = document.getElementById(`member-${index}-usd`);
+            if (usdEl) {
+                usdEl.innerText = "$" + usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                usdEl.style.color = hourChangeColor;
+            }
+
+            const pl = usd - (member.btcAmount * member.avgCost);
+            const plEl = document.getElementById(`member-${index}-pl`);
+            if (plEl) {
+                plEl.innerText = `${pl >= 0 ? "+" : ""}$${pl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                plEl.style.color = pl >= 0 ? "green" : "red";
+            }
+        });
+
+        document.getElementById('24hr-change').innerHTML =
+            `<font color="${hourChangeColor}">${hourChangeSign}${hourChangePercentage}% <span class="arrow">${arrowDirection}</span></font>`;
+
+        const avgCost = members[0]?.avgCost ?? 0;
+        document.getElementById('avg-cost').innerText =
+            "$" + avgCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        localStorage.setItem('priceData', JSON.stringify(data));
+    }).catch(e => console.error('Price update error:', e));
+}
+
+// ── Historical Prices ──────────────────────────────────────────
+async function fetchHistoricalPrice(daysAgo) {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    const dd = ("0" + date.getDate()).slice(-2);
+    const mm = ("0" + (date.getMonth() + 1)).slice(-2);
+    const yyyy = date.getFullYear();
+    const dateStr = `${dd}-${mm}-${yyyy}`;
+
+    try {
+        // Use CoinGecko for historical (custom APIs typically don't support this)
+        const resp = await fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/history?date=${dateStr}`);
+        const data = await resp.json();
+        return data.market_data?.current_price?.usd ?? 0;
+    } catch (e) {
+        console.error('Historical price error:', e);
+        return 0;
+    }
+}
+
+async function updateHistoricalPrices() {
+    const [week, month, year] = await Promise.all([
+        fetchHistoricalPrice(7),
+        fetchHistoricalPrice(30),
+        fetchHistoricalPrice(365),
+    ]);
+
+    const fmt = (p) => "$" + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (week) document.getElementById('price-last-week').innerText = fmt(week);
+    if (month) document.getElementById('price-last-month').innerText = fmt(month);
+    if (year) document.getElementById('price-last-year').innerText = fmt(year);
+}
+
+// ── Chart ──────────────────────────────────────────────────────
+async function fetchHistoricPrices() {
+    try {
+        const resp = await fetch('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30');
+        const data = await resp.json();
+        const prices = data.prices.map(p => ({
+            date: new Date(p[0]),
+            value: p[1]
+        }));
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const filtered = [];
+        const seen = new Set();
+        prices.forEach((price, i) => {
+            const d = new Date(price.date);
+            d.setHours(0, 0, 0, 0);
+            const key = d.toISOString().split('T')[0];
+            if ((i % 10 === 0 || d.getTime() === today.getTime()) && !seen.has(key)) {
+                filtered.push(price);
+                seen.add(key);
+            }
+        });
+
+        return filtered.map(p => ({
+            date: p.date.toISOString().split('T')[0].substring(5).replace('-', '.'),
+            value: p.value
+        }));
+    } catch (e) {
+        console.error('Chart data error:', e);
+        return [];
+    }
+}
+
+// ── Initialize ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+    // Load config first
+    await loadConfig();
+
+    // Set title
+    document.getElementById('dashboard-heading').innerText = dashboardConfig.title;
+    document.title = dashboardConfig.title;
+
+    // Build member cards
+    buildMemberCards();
+
+    // Populate BTC amounts
+    dashboardConfig.familyMembers.forEach((member, index) => {
+        const el = document.getElementById(`member-${index}-btc`);
+        if (el) el.innerText = member.btcAmount.toFixed(8) + " BTC";
+    });
+
+    // Initialize chart
+    var ctx = document.getElementById("myChart").getContext('2d');
+    var gradientStroke = ctx.createLinearGradient(0, 0, 2000, 0);
+    gradientStroke.addColorStop(0, "rgba(124, 77, 255, .3)");
+    gradientStroke.addColorStop(0.3, "rgba(68, 138, 255, .3)");
+    gradientStroke.addColorStop(0.6, "rgba(0, 188, 212, .5)");
+    gradientStroke.addColorStop(1, "rgba(29, 233, 182, .6)");
+
+    var myChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Price USD',
+                data: [],
+                lineTension: 0,
+                borderColor: 'rgba(54, 162, 235, 1)',
+                backgroundColor: gradientStroke,
+                borderWidth: 1,
+                pointRadius: 3,
+                pointHitRadius: 5
+            }]
+        },
+        options: {
+            legend: { display: false },
+            tooltips: {
+                callbacks: {
+                    title: function(items) { return "\uD83D\uDCC5 " + items[0].xLabel; },
+                    label: function(item) {
+                        return "$" + parseFloat(item.yLabel).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    }
+                }
+            },
+            scales: {
+                yAxes: [{
+                    ticks: {
+                        beginAtZero: false,
+                        callback: function(value) { return '$' + (value / 1000).toFixed(0) + 'k'; }
+                    }
+                }],
+                xAxes: [{
+                    ticks: { autoSkip: true, maxTicksLimit: 10 }
+                }]
+            }
+        }
+    });
+
+    fetchHistoricPrices().then(prices => {
+        myChart.data.labels = prices.map(p => p.date);
+        myChart.data.datasets[0].data = prices.map(p => p.value);
+        myChart.update();
+    });
+
+    // Initial data load
+    updatePrice();
+    updateHistoricalPrices();
+
+    // Refresh every 99 seconds (CoinGecko free tier safe)
+    setInterval(updatePrice, 99000);
+    setInterval(updateHistoricalPrices, 99000);
+});
+</script>
 </body>
 </html>
