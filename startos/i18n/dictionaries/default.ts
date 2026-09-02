@@ -55,6 +55,8 @@ const dict = {
   'Choose which family member this wallet belongs to': 57,
   'Output Descriptor': 58,
   'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balance fetching will be wired up later.': 59,
+  'Watch-Only Wallet (Advanced)': 60,
+  'ADVANCED — totally optional. Attach a Bitcoin output descriptor to a family member to show their on-chain balance on the dashboard. Skip this entirely if you only track holdings manually.': 61,
 } as const
 
 /**

@@ -42,9 +42,9 @@ const watchOnlyInput = InputSpec.of({
 export const configureWatchOnlyWallet = sdk.Action.withInput(
   'configure-watch-only-wallet',
   {
-    name: i18n('Watch-Only Wallet'),
+    name: i18n('Watch-Only Wallet (Advanced)'),
     description: i18n(
-      'Attach a Bitcoin output descriptor to a family member. Balance fetching comes later.',
+      'ADVANCED — totally optional. Attach a Bitcoin output descriptor to a family member to show their on-chain balance on the dashboard. Skip this entirely if you only track holdings manually.',
     ),
     warning: null,
     visibility: 'enabled',

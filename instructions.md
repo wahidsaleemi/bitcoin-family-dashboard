@@ -20,7 +20,7 @@ All settings are managed from the StartOS **Actions** menu for this service:
 - **Update Family Member** — change a member's BTC holdings or average cost basis.
 - **Configure Price Source** — choose **Coinbase Exchange** (default, free, no API key), **Binance** (free), **Bitstamp** (free), or **Custom API** with your own endpoint URL and API key.
 - **Configure Background** — enable rotating background photos from Pexels (free API key required: [https://www.pexels.com/api/](https://www.pexels.com/api/)). When enabled, a new photo is fetched every 5 minutes.
-- **Watch-Only Wallet** — attach a Bitcoin output descriptor to a family member. Balances are fetched automatically: from your StartOS **Bitcoin Core** node when it's installed (via its RPC bridge), otherwise from the public **mempool.space** API. Supported descriptor types: `wpkh`, `pkh`, `sh(wpkh)`, `tr`, or a bare xpub.
+- **Watch-Only Wallet (Advanced, optional)** — attach a Bitcoin output descriptor to a family member. Balances are fetched automatically: from your StartOS **Bitcoin Core** node when it's installed (via its RPC bridge), otherwise from the public **mempool.space** API. Supported descriptor types: `wpkh`, `pkh`, `sh(wpkh)`, `tr`, or a bare xpub. This is entirely optional — skip it if you only track holdings manually.
 
 ## Dark Mode
 
