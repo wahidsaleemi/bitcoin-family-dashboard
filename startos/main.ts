@@ -39,21 +39,23 @@ export const main = sdk.setupMain(async ({ effects }) => {
 
   // Mount bitcoind's volume read-only so the helper can read the RPC cookie
   // (.cookie) for seamless authenticated RPC — no credentials in config.
-  // Whole-volume mount: the cookie lives at main/.cookie on the volume.
-  const mounts = sdk.Mounts.of()
-    .mountVolume({
-      volumeId: 'main',
-      subpath: null,
-      mountpoint: '/data',
-      readonly: false,
-    })
-    .mountDependency({
+  // Only mounted when bitcoind is actually installed (bitcoindRpc non-null):
+  // an absent dependency must never block startup or attempt a mount.
+  let mounts = sdk.Mounts.of().mountVolume({
+    volumeId: 'main',
+    subpath: null,
+    mountpoint: '/data',
+    readonly: false,
+  })
+  if (bitcoindRpc) {
+    mounts = mounts.mountDependency({
       dependencyId: 'bitcoind',
       volumeId: 'main',
       subpath: null,
       mountpoint: '/mnt/bitcoind',
       readonly: true,
     } as any)
+  }
 
   function safeHost(url: string): string {
     try {
