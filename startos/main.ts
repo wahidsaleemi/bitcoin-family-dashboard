@@ -22,10 +22,11 @@ export const main = sdk.setupMain(async ({ effects }) => {
   // Watch-only wallet: resolve the StartOS bitcoind RPC bridge address.
   // If bitcoind is installed, the helper talks to it directly; otherwise
   // it falls back to the public mempool.space API. Absent = empty env.
+  // Host id is 'rpc' (from bitcoin-core-startos/startos/utils.ts), port 8332.
   const bitcoindRpc = await sdk.host
     .getBridgeAddress(effects, {
       packageId: 'bitcoind',
-      hostId: 'main',
+      hostId: 'rpc',
       internalPort: 8332,
       ssl: false,
     })
