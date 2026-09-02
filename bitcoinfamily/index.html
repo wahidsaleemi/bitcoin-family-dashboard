@@ -362,7 +362,6 @@ function buildMemberCards() {
             </span>
             <h1>${escapeHtml(member.name)}</h1>
             <p id="member-${index}-btc" class="btc-amount btc-box"></p>
-            <p id="member-${index}-watch" class="watch-badge" style="font-size:0.85em; color:#777; margin:4px 0;"></p>
             <font color="green"><h3 id="member-${index}-usd" class="usd-amount">$00,000.00</h3></font>
             <p id="member-${index}-pl" class="pl-section"></p>
         `;
@@ -558,22 +557,9 @@ function updatePrice() {
         document.getElementById('current-price').innerText =
             "$" + currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        const members = dashboardConfig.familyMembers;
-        members.forEach((member, index) => {
-            const usd = member.btcAmount * currentPrice;
-            const usdEl = document.getElementById(`member-${index}-usd`);
-            if (usdEl) {
-                usdEl.innerText = "$" + usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                usdEl.style.color = hourChangeColor;
-            }
-
-            const pl = usd - (member.btcAmount * member.avgCost);
-            const plEl = document.getElementById(`member-${index}-pl`);
-            if (plEl) {
-                plEl.innerText = `${pl >= 0 ? "+" : ""}$${pl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                plEl.style.color = pl >= 0 ? "green" : "red";
-            }
-        });
+        // Render member amounts, USD value and P&L from the effective
+        // balance (watch-only overrides manual when present).
+        renderMemberBalances(currentPrice);
 
         document.getElementById('24hr-change').innerHTML =
             `<font color="${hourChangeColor}">${hourChangeSign}${hourChangePercentage}% <span class="arrow">${arrowDirection}</span></font>`;
@@ -621,11 +607,50 @@ async function updateHistoricalPrices() {
 // ── Watch-Only Wallet Balances ─────────────────────────────────
 let watchBalancesCache = {};
 
+/** Effective BTC balance for a member: watch-only wallet balance (if a
+ *  watch balance is available for this member) overrides the manual
+ *  btcAmount entry. Falls back to the manual amount otherwise. */
+function effectiveBtcFor(member) {
+    const w = watchBalancesCache[member.name];
+    if (w && typeof w.balanceSats === 'number' && !isNaN(w.balanceSats)) {
+        return w.balanceSats / 1e8;
+    }
+    return member.btcAmount;
+}
+
+/** Re-render the BTC amount, USD value and P&L for every member using the
+ *  effective balance (watch-only when present, manual otherwise). */
+function renderMemberBalances(currentPrice) {
+    const members = dashboardConfig.familyMembers;
+    members.forEach((member, index) => {
+        const btc = effectiveBtcFor(member);
+        const btcEl = document.getElementById(`member-${index}-btc`);
+        if (btcEl) btcEl.innerText = btc.toFixed(8) + " BTC";
+
+        if (typeof currentPrice === 'number') {
+            const usd = btc * currentPrice;
+            const usdEl = document.getElementById(`member-${index}-usd`);
+            if (usdEl) {
+                usdEl.innerText = "$" + usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                usdEl.style.color = usdEl.style.color || 'green';
+            }
+
+            const pl = usd - (btc * member.avgCost);
+            const plEl = document.getElementById(`member-${index}-pl`);
+            if (plEl) {
+                plEl.innerText = `${pl >= 0 ? "+" : ""}$${pl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                plEl.style.color = pl >= 0 ? "green" : "red";
+            }
+        }
+    });
+}
+
 async function fetchWatchBalances() {
     const wallets = dashboardConfig.watchOnlyWallets;
     if (!wallets || wallets.length === 0) {
         watchBalancesCache = {};
-        document.querySelectorAll('.watch-badge').forEach(el => el.innerText = '');
+        // No watch wallets configured — show manual values
+        renderMemberBalances(getCachedPrice());
         return;
     }
     try {
@@ -635,28 +660,30 @@ async function fetchWatchBalances() {
             watchBalancesCache[w.memberName] = w;
         });
 
-        // Update each member's badge
-        const members = dashboardConfig.familyMembers;
-        members.forEach((member, index) => {
-            const el = document.getElementById(`member-${index}-watch`);
-            const w = watchBalancesCache[member.name];
-            if (el) {
-                if (w && w.balanceSats !== null && w.balanceSats !== undefined) {
-                    const btc = w.balanceSats / 1e8;
-                    const src = w.source === 'bitcoind' ? 'Core' : 'mempool';
-                    el.innerText = `📡 ${btc.toFixed(8)} BTC (watch · ${src})`;
-                    el.style.color = '#f7931a';
-                } else if (w && w.error) {
-                    el.innerText = `⚠️ ${w.error}`;
-                    el.style.color = '#c0392b';
-                } else {
-                    el.innerText = '';
-                }
-            }
-        });
+        // Watch balance (if any) replaces the manual amount in the main BTC
+        // line — re-render amounts/USD/P&L from effective balances.
+        renderMemberBalances(getCachedPrice());
     } catch (e) {
         console.error('Watch balance error:', e);
     }
+}
+
+/** Current price from the price cache (or the DOM if not yet cached). */
+function getCachedPrice() {
+    const cached = localStorage.getItem('priceData');
+    if (cached) {
+        try {
+            const parsed = JSON.parse(cached);
+            if (parsed && typeof parsed.currentPrice === 'number') return parsed.currentPrice;
+        } catch (e) {}
+    }
+    const el = document.getElementById('current-price');
+    if (el) {
+        const txt = el.innerText.replace(/[$,]/g, '');
+        const num = parseFloat(txt);
+        if (!isNaN(num)) return num;
+    }
+    return null;
 }
 
 // ── Pexels Background Rotation ─────────────────────────────────
@@ -805,10 +832,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     buildMemberCards();
 
-    dashboardConfig.familyMembers.forEach((member, index) => {
-        const el = document.getElementById(`member-${index}-btc`);
-        if (el) el.innerText = member.btcAmount.toFixed(8) + " BTC";
-    });
+    // Show manual amounts first; fetchWatchBalances() overwrites with
+    // watch-only balances (if configured) when they arrive.
+    renderMemberBalances(null);
 
     chartTitleEl = document.getElementById('chart-title');
     var ctx = document.getElementById("myChart").getContext('2d');
