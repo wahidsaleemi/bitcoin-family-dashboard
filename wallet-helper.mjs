@@ -205,18 +205,6 @@ function deriveAddress(parsed, i) {
   }
 }
 
-/** Query an address's balance (confirmed + mempool) from mempool.space. */
-async function balanceFromMempool(address) {
-  const url = `${MEMPOOL_API}/address/${address}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
-  const data = await res.json()
-  const stats = data.chain_stats || {}
-  const mempool = data.mempool_stats || {}
-  return (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
-         (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
-}
-
 /** Build a scantxoutset descriptor for a parsed wallet descriptor.
  *  e.g. wpkh(xpub/0/*) or wsh(sortedmulti(2,xpub1/0/*,xpub2/0/*,...))
  *  with an explicit range so one RPC call scans the whole wallet. */
@@ -351,7 +339,7 @@ async function balanceFromBitcoind(parsed, memberName) {
 }
 
 const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
-const DEFAULT_RANGE = 200 // mempool fallback window per branch (rate-limit friendly)
+const DEFAULT_RANGE = 500 // mempool scan window per branch (covers sparse wallets)
 
 /** Query an address's activity (tx count) + balance from mempool.space. */
 async function addrInfoFromMempool(address) {
@@ -365,6 +353,53 @@ async function addrInfoFromMempool(address) {
               (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
   const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
   return { balanceSats: bal, txCount }
+}
+
+/** Scan a wallet's balance from mempool.space. Returns { balanceSats, addresses, lastUsedIndex } or null on total failure. */
+async function balanceFromMempool(parsed) {
+  const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
+  let total = 0
+  const allAddresses = []
+  let lastUsedIndex = -1
+  let failures = 0
+  let queries = 0
+
+  for (const branch of branches) {
+    const branchParsed = { ...parsed, trailing: `/${branch}` }
+    const batchSize = 25
+    for (let i = 0; i < DEFAULT_RANGE; i += batchSize) {
+      const batchAddrs = []
+      for (let k = 0; k < batchSize && i + k < DEFAULT_RANGE; k++) {
+        batchAddrs.push(deriveAddress(branchParsed, i + k))
+      }
+      const infos = await Promise.all(
+        batchAddrs.map((a) =>
+          addrInfoFromMempool(a).then(
+            (info) => info,
+            () => { failures++; return { balanceSats: 0, txCount: 0 } },
+          ),
+        ),
+      )
+      for (let k = 0; k < infos.length; k++) {
+        queries++
+        total += infos[k].balanceSats
+        if (infos[k].txCount > 0) lastUsedIndex = Math.max(lastUsedIndex, i + k)
+      }
+      allAddresses.push(...batchAddrs)
+      // Small delay between batches to respect mempool.space rate limits
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+
+  // If mempool.space is completely unreachable (e.g. no internet from the
+  // container), every query fails — return null so the caller falls back
+  // to bitcoind instead of reporting a bogus 0 balance.
+  if (queries > 0 && failures === queries) {
+    console.error('mempool.space unreachable — all address queries failed')
+    return null
+  }
+
+  return { balanceSats: total, addresses: allAddresses, lastUsedIndex }
 }
 
 let scanStatus = { scanning: false, member: '', lastScanAt: null }
@@ -420,45 +455,47 @@ async function handle(req, res) {
         scanStatus = { scanning: true, member: w.memberName, lastScanAt: scanStatus.lastScanAt }
         const parsed = parseDescriptor(w.descriptor)
         let balanceSats = null
-        let source = 'mempool'
+        let source = null
         let addresses = []
         let lastUsedIndex = -1
 
-        // Respect the per-wallet source setting: 'bitcoind' (local node) or
-        // 'mempool' (public). bitcoind falls back to mempool if unavailable.
-        const wantBitcoind = (w.source ?? 'bitcoind') === 'bitcoind'
-        if (wantBitcoind && BITCOIND_RPC) {
-          const r = await balanceFromBitcoind(parsed, w.memberName)
-          if (r !== null) {
-            balanceSats = r
-            source = 'bitcoind'
+        // Respect the per-wallet source setting, but fall back to the OTHER
+        // source if the chosen one fails — the user should always get a real
+        // balance if either bitcoind or mempool.space works.
+        const preferred = (w.source ?? 'bitcoind') === 'bitcoind' ? 'bitcoind' : 'mempool'
+        const order = preferred === 'bitcoind' ? ['bitcoind', 'mempool'] : ['mempool', 'bitcoind']
+
+        for (const src of order) {
+          if (src === 'bitcoind' && BITCOIND_RPC) {
+            const r = await balanceFromBitcoind(parsed, w.memberName)
+            if (r !== null) {
+              balanceSats = r
+              source = 'bitcoind'
+              break
+            }
+          } else if (src === 'mempool') {
+            const r = await balanceFromMempool(parsed)
+            if (r !== null) {
+              balanceSats = r.balanceSats
+              addresses = r.addresses
+              lastUsedIndex = r.lastUsedIndex
+              source = 'mempool'
+              break
+            }
           }
         }
 
-        if (balanceSats === null) {
-          // mempool.space (chosen source, or fallback when bitcoind unavailable):
-          // explicit-window scan — derive DEFAULT_RANGE addresses per branch and
-          // query balances in parallel.
-          const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
-          for (const branch of branches) {
-            const branchParsed = { ...parsed, trailing: `/${branch}` }
-            const batchSize = 20
-            for (let i = 0; i < DEFAULT_RANGE; i += batchSize) {
-              const batchAddrs = []
-              for (let k = 0; k < batchSize && i + k < DEFAULT_RANGE; k++) {
-                batchAddrs.push(deriveAddress(branchParsed, i + k))
-              }
-              const infos = await Promise.all(
-                batchAddrs.map((a) => addrInfoFromMempool(a).catch(() => ({ balanceSats: 0, txCount: 0 }))),
-              )
-              for (let k = 0; k < infos.length; k++) {
-                balanceSats += infos[k].balanceSats
-                if (infos[k].txCount > 0) lastUsedIndex = Math.max(lastUsedIndex, i + k)
-              }
-              addresses.push(...batchAddrs)
-              // Small delay between batches to respect mempool.space rate limits
-              await new Promise((r) => setTimeout(r, 150))
-            }
+        if (source === null) {
+          // Both sources failed — report null (frontend shows error/blank)
+          console.error(`Both sources failed for ${w.memberName}`)
+          return {
+            memberName: w.memberName,
+            descriptor: w.descriptor,
+            balanceSats: null,
+            addresses: [],
+            lastUsedIndex: -1,
+            source: 'none',
+            error: 'Both bitcoind and mempool.space failed',
           }
         }
 
