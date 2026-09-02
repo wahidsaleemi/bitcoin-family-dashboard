@@ -316,7 +316,10 @@ async function balanceFromBitcoind(parsed, memberName) {
     const alreadyImported = existing?.descriptors?.some((d) => d.desc === info.descriptor)
     importRequests.push({
       desc: info.descriptor, // includes #checksum
-      timestamp: alreadyImported ? 'now' : 0, // rescan only on first import
+      // Rescan from 2024-01-01 on first import — covers virtually all real
+      // wallet usage while avoiding the multi-minute full-history rescan on
+      // a 965k-block node. After first import, 'now' (no re-rescan).
+      timestamp: alreadyImported ? 'now' : 1704067200,
       range: [0, SCAN_RANGE],
       active: true,
       internal: b === '1',
