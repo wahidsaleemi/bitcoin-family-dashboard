@@ -4,12 +4,14 @@ A fully client-side Bitcoin dashboard for tracking family BTC holdings, real-tim
 
 ## Features
 
-- Real-time Bitcoin price from CoinGecko API
+- Real-time Bitcoin price from common sources (CoinGecko, Binance) or custom API
+- Manually enter bitcoin quantity or point to a watch-only wallet
 - Per-family-member BTC holdings with USD value and P&L
-- 30-day price chart
+- 30-day price chart, 1-year price chart, and 10-year price chart
 - Historical price comparisons (1 week, 1 month, 1 year)
 - Fullscreen-ready
 - Auto-generated profile avatars (pravatar) for each member
+- Profile avatars can be updated on the dashboard
 
 ## Actions & Config
 
