@@ -33,3 +33,10 @@ if [ ! -f /data/config.json ]; then
 }
 SEED_EOF
 fi
+
+# Start the watch-only wallet balance helper in the background.
+# It reads config.json + env at request time, so it can start before nginx.
+if [ -f /opt/wallet-helper/wallet-helper.mjs ]; then
+    echo "Starting wallet-helper..."
+    node /opt/wallet-helper/wallet-helper.mjs &
+fi

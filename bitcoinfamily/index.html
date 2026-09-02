@@ -362,6 +362,7 @@ function buildMemberCards() {
             </span>
             <h1>${escapeHtml(member.name)}</h1>
             <p id="member-${index}-btc" class="btc-amount btc-box"></p>
+            <p id="member-${index}-watch" class="watch-badge" style="font-size:0.85em; color:#777; margin:4px 0;"></p>
             <font color="green"><h3 id="member-${index}-usd" class="usd-amount">$00,000.00</h3></font>
             <p id="member-${index}-pl" class="pl-section"></p>
         `;
@@ -617,6 +618,47 @@ async function updateHistoricalPrices() {
     }
 }
 
+// ── Watch-Only Wallet Balances ─────────────────────────────────
+let watchBalancesCache = {};
+
+async function fetchWatchBalances() {
+    const wallets = dashboardConfig.watchOnlyWallets;
+    if (!wallets || wallets.length === 0) {
+        watchBalancesCache = {};
+        document.querySelectorAll('.watch-badge').forEach(el => el.innerText = '');
+        return;
+    }
+    try {
+        const data = await fetchJSON('/api/wallet-balance');
+        watchBalancesCache = {};
+        (data.wallets || []).forEach(w => {
+            watchBalancesCache[w.memberName] = w;
+        });
+
+        // Update each member's badge
+        const members = dashboardConfig.familyMembers;
+        members.forEach((member, index) => {
+            const el = document.getElementById(`member-${index}-watch`);
+            const w = watchBalancesCache[member.name];
+            if (el) {
+                if (w && w.balanceSats !== null && w.balanceSats !== undefined) {
+                    const btc = w.balanceSats / 1e8;
+                    const src = w.source === 'bitcoind' ? 'Core' : 'mempool';
+                    el.innerText = `📡 ${btc.toFixed(8)} BTC (watch · ${src})`;
+                    el.style.color = '#f7931a';
+                } else if (w && w.error) {
+                    el.innerText = `⚠️ ${w.error}`;
+                    el.style.color = '#c0392b';
+                } else {
+                    el.innerText = '';
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Watch balance error:', e);
+    }
+}
+
 // ── Pexels Background Rotation ─────────────────────────────────
 let pexelsPage = 1;
 
@@ -828,6 +870,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateHistoricalPrices();
     fetchPexelsBackground();
     updatePexelsOverlay();
+    fetchWatchBalances();
 
     // Rotate chart window every 60s; refresh all data + prices every 120s
     setInterval(rotateChart, 60000);
@@ -836,6 +879,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(updateHistoricalPrices, 120000);
     // Rotate Pexels background every 5 minutes (if enabled)
     setInterval(fetchPexelsBackground, 300000);
+    // Refresh watch-only balances every 5 minutes
+    setInterval(fetchWatchBalances, 300000);
 });
 </script>
 </body>

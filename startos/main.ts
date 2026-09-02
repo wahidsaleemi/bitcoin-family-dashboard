@@ -19,6 +19,24 @@ export const main = sdk.setupMain(async ({ effects }) => {
   const isCustom = type === 'custom' && !!source?.apiUrl?.trim()
   const pexelsKey = config?.pexels?.apiKey?.trim() ?? ''
 
+  // Watch-only wallet: resolve the StartOS bitcoind RPC bridge address.
+  // If bitcoind is installed, the helper talks to it directly; otherwise
+  // it falls back to the public mempool.space API. Absent = empty env.
+  const bitcoindRpc = await sdk.host
+    .getBridgeAddress(effects, {
+      packageId: 'bitcoind',
+      hostId: 'main',
+      internalPort: 8332,
+      ssl: false,
+    })
+    .const()
+  const bitcoindRpcUrl = bitcoindRpc ? `http://${bitcoindRpc}` : ''
+  if (bitcoindRpcUrl) {
+    console.info(`Bitcoin Core detected at ${bitcoindRpcUrl} — watch-only wallets use it`)
+  } else {
+    console.info('Bitcoin Core not detected — watch-only wallets use public mempool.space')
+  }
+
   function safeHost(url: string): string {
     try {
       return new URL(url).host
@@ -73,6 +91,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
         PRICE_UPSTREAM: priceUpstream,
         PRICE_HOST: priceHost,
         PEXELS_API_KEY: pexelsKey,
+        BITCOIND_RPC: bitcoindRpcUrl,
       },
     },
     ready: {

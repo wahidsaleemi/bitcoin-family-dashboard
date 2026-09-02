@@ -23,7 +23,7 @@ All settings are managed from the StartOS **Actions** menu for this service:
 
 ### Advanced
 
-- **Watch-Only Wallet** — attach a Bitcoin output descriptor to a family member. The UI saves the binding; balance fetching will be enabled in a future release.
+- **Watch-Only Wallet** — attach a Bitcoin output descriptor to a family member. Balances are fetched automatically: from your StartOS **Bitcoin Core** node when it's installed (via its RPC bridge), otherwise from the public **mempool.space** API. Supported descriptor types: `wpkh`, `pkh`, `sh(wpkh)`, `tr`, or a bare xpub.
 
 ## Dark Mode
 

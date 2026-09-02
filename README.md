@@ -23,6 +23,7 @@ Bitcoin Family Dashboard is a fully client-side Bitcoin dashboard for tracking f
 - **Three rotating charts** — 30-day, 1-year, and 10-year price history, rotating every 60 seconds with a log scale on the long view
 - **Dark mode** — a pill toggle in the top-right (persisted in the browser), with a near-black chart theme
 - **Pexels backgrounds** — optional rotating landscape photos (free API key required)
+- **Watch-only wallets** — attach a Bitcoin output descriptor to a member; balances are pulled from your StartOS Bitcoin Core node when present, otherwise from the public mempool.space API
 
 ## Table of Contents
 
