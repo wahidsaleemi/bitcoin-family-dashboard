@@ -386,6 +386,15 @@ async function balanceFromMempool(parsed) {
         if (infos[k].txCount > 0) lastUsedIndex = Math.max(lastUsedIndex, i + k)
       }
       allAddresses.push(...batchAddrs)
+
+      // Fail fast: if a whole batch failed, mempool.space is unreachable —
+      // don't scan the remaining addresses, return null so the caller can
+      // fall back to bitcoind quickly.
+      if (infos.every((x) => x.balanceSats === 0 && x.txCount === 0) && failures >= batchSize) {
+        console.error('mempool.space unreachable — aborting scan, falling back')
+        return null
+      }
+
       // Small delay between batches to respect mempool.space rate limits
       await new Promise((r) => setTimeout(r, 100))
     }
