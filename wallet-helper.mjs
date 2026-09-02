@@ -355,6 +355,10 @@ async function addrInfoFromMempool(address) {
 }
 
 let scanStatus = { scanning: false, member: '', lastScanAt: null }
+// Cache of computed balances so refresh requests don't re-trigger slow scans.
+// TTL: 5 minutes (matches the dashboard refresh interval).
+const CACHE_TTL_MS = 5 * 60 * 1000
+const balanceCache = new Map() // memberName -> { balanceSats, source, at }
 
 async function handle(req, res) {
   res.setHeader('Content-Type', 'application/json')
@@ -386,6 +390,22 @@ async function handle(req, res) {
     const results = []
     for (const w of wallets) {
       try {
+        // Serve from cache if fresh — avoids re-triggering slow rescans on
+        // every dashboard refresh.
+        const cached = balanceCache.get(w.memberName)
+        if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+          results.push({
+            memberName: w.memberName,
+            descriptor: w.descriptor,
+            balanceSats: cached.balanceSats,
+            addresses: [],
+            lastUsedIndex: -1,
+            source: cached.source,
+            cached: true,
+          })
+          continue
+        }
+
         scanStatus = { scanning: true, member: w.memberName, lastScanAt: scanStatus.lastScanAt }
         const parsed = parseDescriptor(w.descriptor)
         let balanceSats = null
@@ -439,6 +459,9 @@ async function handle(req, res) {
           lastUsedIndex,
           source,
         })
+
+        // Cache the computed balance (even 0) so the next refresh is instant
+        balanceCache.set(w.memberName, { balanceSats, source, at: Date.now() })
       } catch (e) {
         results.push({
           memberName: w.memberName,
