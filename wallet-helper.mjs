@@ -242,7 +242,7 @@ function buildScanDescriptor(parsed, branch) {
 }
 
 const SCAN_RANGE = 300 // descriptor import range (like importdescriptors range)
-const WATCH_WALLET = 'watchonly' // dedicated watch-only wallet name in bitcoind
+const WATCH_WALLET = 'watchonly2' // dedicated watch-only wallet (v2 — stale v1 had private keys)
 
 /** Query the whole wallet balance via Bitcoin Core RPC using a watch-only
  *  wallet: import the descriptor once (range [0, N]), then getbalance —
@@ -285,7 +285,8 @@ async function balanceFromBitcoind(parsed, memberName) {
   }
 
   // 1. Ensure the watch-only wallet exists (disable_private_keys=true so
-  // watch-only descriptors can be imported)
+  // watch-only descriptors can be imported). Fresh name => no stale-wallet
+  // conflict.
   const wallets = await rpc('listwalletdir')
   const exists = wallets?.wallets?.some((w) => w.name === WATCH_WALLET)
   if (!exists) {
