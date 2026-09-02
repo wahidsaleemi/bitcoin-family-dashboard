@@ -12,6 +12,7 @@ A fully client-side Bitcoin dashboard for tracking family BTC holdings, real-tim
 - Fullscreen-ready
 - Auto-generated profile avatars (pravatar) for each member
 - Profile avatars can be updated on the dashboard
+- Landscape background image rotates automatically
 
 ## Actions & Config
 
@@ -38,8 +39,10 @@ Each member's avatar starts as an auto-generated pravatar. To use a custom pictu
 
 ## Data Sources
 
-- Price data: [CoinGecko API](https://www.coingecko.com/en/api) (free, no API key required)
-- Chart: [Chart.js](https://www.chartjs.org/)
+- Price data: CoinGecko API, Coinbase, Bitstamp, Binance
+- Chart: Chart.js uses data from Binance daily klines
+- Watch-only wallet: bitcoind if available, otherwise mempool.space
+- Background image: Pexels API
 
 ## Donate
 
