@@ -4,7 +4,7 @@ import { long, short } from './i18n'
 export const manifest = setupManifest({
   id: 'bitcoin-family-dashboard',
   title: 'Bitcoin Family Dashboard',
-  license: 'MIT',
+  license: 'BlueOak-1.0.0',
   packageRepo: 'https://github.com/wahidsaleemi/bitcoin-family-dashboard-startos',
   upstreamRepo: 'https://github.com/wahidsaleemi/bitcoin-family-dashboard',
   marketingUrl: 'https://github.com/wahidsaleemi/bitcoin-family-dashboard',

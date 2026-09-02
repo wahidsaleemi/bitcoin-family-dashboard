@@ -128,3 +128,9 @@ tasks: []
 health_checks:
   - web (port 80)
 ```
+
+---
+
+## License
+
+This project is licensed under the [Blue Oak Model License 1.0.0](LICENSE).
