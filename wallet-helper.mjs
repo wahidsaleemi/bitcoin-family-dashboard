@@ -297,10 +297,10 @@ async function balanceFromBitcoind(parsed, memberName) {
     }
   }
 
-  // 2. Import the descriptors (idempotent). importdescriptors requires the
-  // checksum (#xxxx) on each descriptor — get it from getdescriptorinfo.
-  // First import rescans full history (timestamp 0); later imports use
-  // 'now' so we never re-rescan.
+  // 2. Import any descriptors NOT already in the wallet. Already-imported
+  // ones (e.g. from a prior install with a different range) are skipped —
+  // re-importing with a smaller range fails with 'new range must include
+  // current range'. getdescriptorinfo provides the checksum Core requires.
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
   const importRequests = []
   for (const b of branches) {
@@ -314,24 +314,27 @@ async function balanceFromBitcoind(parsed, memberName) {
     // `private` bool — filter in JS)
     const existing = await rpc('listdescriptors', [false], true)
     const alreadyImported = existing?.descriptors?.some((d) => d.desc === info.descriptor)
-    importRequests.push({
-      desc: info.descriptor, // includes #checksum
-      // Rescan from 2024-01-01 on first import — covers virtually all real
-      // wallet usage while avoiding the multi-minute full-history rescan on
-      // a 965k-block node. After first import, 'now' (no re-rescan).
-      timestamp: alreadyImported ? 'now' : 1704067200,
-      range: [0, SCAN_RANGE],
-      active: true,
-      internal: b === '1',
-      watchonly: true,
-    })
+    if (!alreadyImported) {
+      importRequests.push({
+        desc: info.descriptor, // includes #checksum
+        // Rescan from 2024-01-01 — covers virtually all real wallet usage
+        // without the multi-minute full-history rescan on a 965k-block node.
+        timestamp: 1704067200,
+        range: [0, SCAN_RANGE],
+        active: true,
+        internal: b === '1',
+        watchonly: true,
+      })
+    }
   }
-  const importResult = await rpc('importdescriptors', [importRequests], true)
-  if (!importResult) return null
-  const failed = importResult.filter((r) => !r.success)
-  if (failed.length > 0) {
-    console.error(`importdescriptors failed: ${JSON.stringify(failed[0])}`)
-    return null
+  if (importRequests.length > 0) {
+    const importResult = await rpc('importdescriptors', [importRequests], true)
+    if (!importResult) return null
+    const failed = importResult.filter((r) => !r.success)
+    if (failed.length > 0) {
+      console.error(`importdescriptors failed: ${JSON.stringify(failed[0])}`)
+      return null
+    }
   }
 
   // 3. getbalance — instant
