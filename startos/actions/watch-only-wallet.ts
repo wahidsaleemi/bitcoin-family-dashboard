@@ -28,10 +28,19 @@ const watchOnlyInput = InputSpec.of({
       values,
     }
   }),
+  source: Value.select({
+    name: i18n('Balance Source'),
+    description: i18n('Where to fetch the balance from: your local Bitcoin Core node (instant, private) or the public mempool.space API'),
+    default: 'bitcoind',
+    values: {
+      bitcoind: 'Bitcoin Core (local node)',
+      mempool: 'mempool.space (public)',
+    },
+  }),
   descriptor: Value.textarea({
     name: i18n('Output Descriptor'),
     description: i18n(
-      'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balance fetching will be wired up later.',
+      'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balances are fetched from the selected source.',
     ),
     default: '',
     required: true,
@@ -55,10 +64,11 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
   async () => {
     const config = (await storeJson.read().once()) ?? defaultConfig()
     const memberName = config.familyMembers?.[0]?.name ?? ''
-    // Prefill with any previously-saved descriptor for this member
+    // Prefill with any previously-saved descriptor + source for this member
     const existing = config.watchOnlyWallets.find((w) => w.memberName === memberName)
     return {
       member: memberName,
+      source: existing?.source ?? 'bitcoind',
       descriptor: existing?.descriptor ?? '',
     }
   },
@@ -67,6 +77,7 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
 
     const memberName = input.member.trim()
     const descriptor = (input.descriptor ?? '').trim()
+    const source = input.source === 'mempool' ? 'mempool' : 'bitcoind'
 
     if (!memberName) {
       throw new Error('Please select a family member')
@@ -77,7 +88,7 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
 
     // Replace any existing binding for this member, or append
     const idx = config.watchOnlyWallets.findIndex((w) => w.memberName === memberName)
-    const entry = { memberName, descriptor }
+    const entry = { memberName, descriptor, source: source as 'bitcoind' | 'mempool' }
     if (idx >= 0) {
       config.watchOnlyWallets[idx] = entry
     } else {
@@ -89,7 +100,7 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
     return {
       version: '1' as const,
       title: 'Watch-Only Wallet Updated',
-      message: `Saved descriptor for ${memberName}`,
+      message: `Saved descriptor for ${memberName} (${source})`,
       result: null,
     }
   },

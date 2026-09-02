@@ -736,8 +736,9 @@ async function fetchChartWindow(window) {
         const d = new Date(price.date);
         d.setHours(0, 0, 0, 0);
         const key = d.toISOString().split('T')[0];
-        // For long windows, thin the points: sample every N, keep today
-        const step = window.days >= 365 ? 30 : 10;
+        // Thin long windows to keep charts readable but not sparse:
+        // 30d -> keep every 2nd day (~15 points), 1y -> every 30th (~12 points)
+        const step = window.days >= 365 ? 30 : 2;
         if ((i % step === 0 || d.getTime() === today.getTime()) && !seen.has(key)) {
             filtered.push(price);
             seen.add(key);

@@ -19,11 +19,12 @@ const pexelsSchema = z.object({
   apiKey: z.string().catch(''),
 })
 
-// Watch-only wallet binding: member name -> output descriptor.
-// UI is wired; balance fetching is implemented later.
+// Watch-only wallet binding: member name -> output descriptor + balance source.
+// source: 'bitcoind' (local node, default when available) or 'mempool' (public).
 const watchOnlyWalletSchema = z.object({
   memberName: z.string(),
   descriptor: z.string(),
+  source: z.enum(['bitcoind', 'mempool']).catch('bitcoind'),
 })
 
 const configSchema = z.object({

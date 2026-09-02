@@ -241,13 +241,14 @@ function buildScanDescriptor(parsed, branch) {
   }
 }
 
-const SCAN_RANGE = 300 // explicit scan window per branch — covers sparse wallets
+const SCAN_RANGE = 300 // descriptor import range (like importdescriptors range)
+const WATCH_WALLET = 'watchonly' // dedicated watch-only wallet name in bitcoind
 
-/** Query the whole wallet balance via Bitcoin Core RPC scantxoutset.
- *  Starts the scan, then polls scantxoutset status until it completes
- *  (instead of one long HTTP call that times out). Aborts stale scans
- *  first, but if a scan is genuinely in progress we wait for it. */
-async function balanceFromBitcoind(parsed) {
+/** Query the whole wallet balance via Bitcoin Core RPC using a watch-only
+ *  wallet: import the descriptor once (range [0, N]), then getbalance —
+ *  near-instant on every refresh (no full UTXO scan per request).
+ *  The import is idempotent: re-importing an existing descriptor is a no-op. */
+async function balanceFromBitcoind(parsed, memberName) {
   let auth
   try {
     const fs = await import('node:fs')
@@ -261,8 +262,9 @@ async function balanceFromBitcoind(parsed) {
     return null
   }
 
-  const rpc = async (method, params) => {
-    const res = await fetch(`${BITCOIND_RPC}/`, {
+  const rpc = async (method, params, wallet = false) => {
+    const url = wallet ? `${BITCOIND_RPC}/wallet/${WATCH_WALLET}` : `${BITCOIND_RPC}/`
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
       body: JSON.stringify({ jsonrpc: '1.0', id: 'wallet-helper', method, params }),
@@ -274,61 +276,47 @@ async function balanceFromBitcoind(parsed) {
     }
     const data = await res.json()
     if (data.error) {
-      // -8 = "Scan already in progress" — return a sentinel so the caller waits
-      if (data.error.code === -8) return { scanInProgress: true }
+      // Wallet not found / not loaded — sentinel so caller creates it
+      if (data.error.code === -18) return { walletNotFound: true }
       console.error(`bitcoind RPC error ${method}: ${JSON.stringify(data.error)}`)
       return null
     }
     return data.result
   }
 
-  // If a scan is already running, wait for it rather than abort (aborting
-  // discards progress and the next start just conflicts again).
-  let status = await rpc('scantxoutset', ['status'])
-  if (status && status.scanning) {
-    // Poll until done (max ~2 min)
-    for (let i = 0; i < 24; i++) {
-      await new Promise((r) => setTimeout(r, 5000))
-      status = await rpc('scantxoutset', ['status'])
-      if (!status || !status.scanning) break
-    }
-    if (status && status.scanning) {
-      console.error('scantxoutset scan still in progress after 2 min, giving up')
+  // 1. Ensure the watch-only wallet exists
+  const wallets = await rpc('listwalletdir')
+  const exists = wallets?.wallets?.some((w) => w.name === WATCH_WALLET)
+  if (!exists) {
+    const created = await rpc('createwallet', [WATCH_WALLET, false, true]) // passphrase empty, disable_private_keys=true
+    if (!created) {
+      console.error('Could not create watch-only wallet')
       return null
-    }
-    if (status && status.total_amount !== undefined) {
-      return Math.round(status.total_amount * 1e8)
     }
   }
 
-  // No scan running — abort any stale one (harmless), then start fresh
-  await rpc('scantxoutset', ['abort'])
-
+  // 2. Import the descriptors (idempotent; rescan false — we read current balances)
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
-  const scanObjects = branches.map((b) => ({
+  const importRequests = branches.map((b) => ({
     desc: buildScanDescriptor(parsed, b),
-    range: SCAN_RANGE,
+    timestamp: 'now',
+    range: [0, SCAN_RANGE],
+    active: true,
+    internal: b === '1',
+    watchonly: true,
   }))
-
-  const startResult = await rpc('scantxoutset', ['start', scanObjects])
-  if (startResult && startResult.scanning === false && startResult.total_amount !== undefined) {
-    return Math.round(startResult.total_amount * 1e8)
+  const importResult = await rpc('importdescriptors', [importRequests], true)
+  if (!importResult) return null
+  const failed = importResult.filter((r) => !r.success)
+  if (failed.length > 0) {
+    console.error(`importdescriptors failed: ${JSON.stringify(failed[0])}`)
+    return null
   }
 
-  // Scan started (or was already running) — poll status until done
-  for (let i = 0; i < 24; i++) {
-    await new Promise((r) => setTimeout(r, 5000))
-    status = await rpc('scantxoutset', ['status'])
-    if (!status) return null
-    if (!status.scanning) {
-      if (status.total_amount !== undefined) {
-        return Math.round(status.total_amount * 1e8)
-      }
-      return null
-    }
-  }
-  console.error('scantxoutset scan did not finish within 2 min')
-  return null
+  // 3. getbalance — instant
+  const bal = await rpc('getbalance', ['*', 1, true], true) // include watchonly
+  if (bal === null) return null
+  return Math.round(bal * 1e8)
 }
 
 const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
@@ -387,10 +375,11 @@ async function handle(req, res) {
         let addresses = []
         let lastUsedIndex = -1
 
-        // Prefer Bitcoin Core: one scantxoutset call scans the whole wallet
-        // descriptor range (both branches, up to 10000 addresses each).
-        if (BITCOIND_RPC) {
-          const r = await balanceFromBitcoind(parsed)
+        // Respect the per-wallet source setting: 'bitcoind' (local node) or
+        // 'mempool' (public). bitcoind falls back to mempool if unavailable.
+        const wantBitcoind = (w.source ?? 'bitcoind') === 'bitcoind'
+        if (wantBitcoind && BITCOIND_RPC) {
+          const r = await balanceFromBitcoind(parsed, w.memberName)
           if (r !== null) {
             balanceSats = r
             source = 'bitcoind'
@@ -398,9 +387,9 @@ async function handle(req, res) {
         }
 
         if (balanceSats === null) {
-          // Public fallback: explicit-window scan (like importdescriptors
-          // range [0, N]) — derive DEFAULT_RANGE addresses per branch and
-          // query balances in parallel. No gap heuristic; finds sparse funds.
+          // mempool.space (chosen source, or fallback when bitcoind unavailable):
+          // explicit-window scan — derive DEFAULT_RANGE addresses per branch and
+          // query balances in parallel.
           const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
           for (const branch of branches) {
             const branchParsed = { ...parsed, trailing: `/${branch}` }

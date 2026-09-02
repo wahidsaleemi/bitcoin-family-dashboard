@@ -59,6 +59,11 @@ const dict = {
   'ADVANCED — totally optional. Attach a Bitcoin output descriptor to a family member to show their on-chain balance on the dashboard. Skip this entirely if you only track holdings manually.': 61,
   'Watch-only wallet scan': 62,
   'Watch-only wallet scanner is not responding': 63,
+  'Balance Source': 64,
+  'Where to fetch the balance from: your local Bitcoin Core node (instant, private) or the public mempool.space API': 65,
+  'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balances are fetched from the selected source.': 66,
+  'Bitcoin Core (local node)': 67,
+  'mempool.space (public)': 68,
 } as const
 
 /**
