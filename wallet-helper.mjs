@@ -484,14 +484,14 @@ async function handle(req, res) {
     }
 
     // Process wallets sequentially (avoids concurrent createwallet races on
-    // the same bitcoind). A slow first-time rescan is bounded per-wallet so
-    // it can't block the response forever.
+    // the same bitcoind). Give the first-time rescan generous time (240s);
+    // after the first import completes, subsequent calls are instant.
     const results = []
     for (const w of wallets) {
       const result = await Promise.race([
         processWallet(w),
         new Promise((resolve) =>
-          setTimeout(() => resolve({ memberName: w.memberName, descriptor: w.descriptor, balanceSats: null, timedOut: true }), 90000),
+          setTimeout(() => resolve({ memberName: w.memberName, descriptor: w.descriptor, balanceSats: null, timedOut: true }), 240000),
         ),
       ])
       results.push(result)
