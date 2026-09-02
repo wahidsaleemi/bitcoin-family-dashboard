@@ -31,8 +31,6 @@ COPY nginx-templates/ /etc/nginx/templates/
 ENV PRICE_UPSTREAM="https://api.exchange.coinbase.com/products/BTC-USD/ticker" \
     PRICE_HOST="api.exchange.coinbase.com" \
     PEXELS_API_KEY="" \
-    BITCOIND_RPC="" \
-    BITCOIND_USER="" \
-    BITCOIND_PASS=""
+    BITCOIND_RPC=""
 
 EXPOSE 80

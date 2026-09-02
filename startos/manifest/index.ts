@@ -17,5 +17,14 @@ export const manifest = setupManifest({
       arch: ['x86_64', 'aarch64'],
     },
   },
-  dependencies: {},
+  dependencies: {
+    bitcoind: {
+      description: 'Provides RPC and cookie credentials for watch-only wallet balances. Optional — falls back to the public mempool.space API when not installed.',
+      optional: true,
+      metadata: {
+        title: 'Bitcoin Core',
+        icon: 'https://raw.githubusercontent.com/Start9Labs/bitcoin-core-startos/master/icon.svg',
+      },
+    },
+  },
 })

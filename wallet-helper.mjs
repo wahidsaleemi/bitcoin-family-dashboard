@@ -23,35 +23,76 @@ const bip32 = BIP32Factory(ecc)
 
 const PORT = Number(process.env.HELPER_PORT || 8090)
 const BITCOIND_RPC = process.env.BITCOIND_RPC || '' // e.g. http://10.0.3.1:8332
-const BITCOIND_USER = process.env.BITCOIND_USER || ''
-const BITCOIND_PASS = process.env.BITCOIND_PASS || ''
 const MEMPOOL_API = process.env.MEMPOOL_API || 'https://mempool.space/api'
 const NETWORK = process.env.BITCOIN_NETWORK === 'testnet' ? bitcoin.networks.testnet : bitcoin.networks.bitcoin
 
 const ADDR_SCAN = 25 // derive this many addresses per descriptor for now
 
 /**
- * Parse a descriptor and return a function that produces address for index i.
- * Supports: wpkh(xpub/...), pkh(xpub/...), sh(wpkh(xpub/...)), tr(xpub/...)
- * Also accepts a bare xpub (treats as wpkh). Descriptor paths like
- * xpub.../0/* are supported — the /N path is applied before the index.
+ * Strip a descriptor checksum suffix (#xxxxxx) if present.
  */
-function splitXpubPath(s) {
-  // xpub/tpub/etc = base58check; then an optional path like /0/*
-  const m = s.trim().match(/^([1-9A-HJ-NP-Za-km-z]+)((\/[0-9hH']+)*\/?(\/\*)?)?$/)
-  if (!m) throw new Error(`Could not parse xpub from: ${s}`)
-  const xpub = m[1]
-  const path = m[2] || ''
-  return { xpub, path }
+function stripChecksum(s) {
+  return s.replace(/#[0-9a-z]{8}$/, '').trim()
 }
 
-/** Apply a descriptor path like "/0/*" (hardened ok) to a node, returning a new node rooted at the "*". */
-function nodeFromXpubPath(xpub, path) {
-  let node = bip32.fromBase58(xpub)
-  // Parse path components: /0, /1', /2h, /3H
+/**
+ * Parse a key expression: optional [fingerprint/path] origin, an xpub, and a
+ * trailing /path or <a;b> multipath. Returns { xpub, originPath, paths }
+ * where paths is a list of trailing path strings (usually ['0'] for /0/*,
+ * or ['0','1'] for <0;1>/*). The wildcard (*) is consumed separately.
+ */
+function parseKeyExpr(expr) {
+  let s = stripChecksum(expr).trim()
+
+  // Key origin: [fingerprint/path]xpub...
+  let originPath = ''
+  let origin = s.match(/^\[([0-9a-fA-F]{8}(?:\/[0-9hH']+)*)\](.*)$/)
+  if (origin) {
+    originPath = origin[1].slice(9) // drop the fingerprint (8 hex chars), keep /path
+    s = origin[2].trim()
+  }
+
+  // Multipath: <0;1> suffix (external;change)
+  let paths = ['0']
+  let mp = s.match(/^(.*)<([0-9;hH']+)>(.*)$/)
+  if (mp) {
+    s = (mp[1] + mp[3]).trim()
+    paths = mp[2].split(';')
+  }
+
+  // Collapse any double slash left by multipath removal (xpub...//*)
+  s = s.replace(/\/\//, '/')
+
+  // Trailing path like /0/* or bare /* — extract the last non-wildcard dir
+  let trailing = ''
+  const tp = s.match(/^(.*?)(\/[0-9hH']+\/\*)$/)
+  if (tp) {
+    trailing = tp[2].replace(/\/\*$/, '')
+    s = tp[1].trim()
+  } else {
+    // bare /* (multipath already consumed the number) or just /N
+    const tp2 = s.match(/^(.*?)(\/[0-9hH']+)(\/\*)?$/)
+    if (tp2) {
+      trailing = tp2[2]
+      s = tp2[1].trim()
+    } else {
+      // strip a bare /* if nothing else matched
+      s = s.replace(/\/\*$/, '')
+    }
+  }
+
+  const xpub = s.trim()
+  if (!/^[xyuvt]pub/.test(xpub)) {
+    throw new Error(`Could not parse xpub from: ${expr}`)
+  }
+  return { xpub, originPath, paths, trailing }
+}
+
+/** Apply a derivation path string ("/0/1h/2") to a node. */
+function derivePath(node, path) {
+  let cur = node
   const parts = path.split('/').filter(Boolean)
   for (const p of parts) {
-    if (p === '*') continue // stop at the wildcard
     let idx = parseInt(p, 10)
     let hardened = false
     if (isNaN(idx)) {
@@ -59,56 +100,91 @@ function nodeFromXpubPath(xpub, path) {
       if (m) { idx = parseInt(m[1], 10); hardened = true }
       else throw new Error(`Bad path component: ${p}`)
     }
-    node = hardened ? node.deriveHardened(idx) : node.derive(idx)
+    cur = hardened ? cur.deriveHardened(idx) : cur.derive(idx)
   }
-  return { node }
+  return cur
 }
 
 function parseDescriptor(descriptor) {
-  const desc = descriptor.trim()
+  const desc = stripChecksum(descriptor).trim()
 
   // Bare xpub -> wpkh
   if (/^[xyuvt]pub/.test(desc)) {
-    const { xpub, path } = splitXpubPath(desc)
-    return { type: 'wpkh', xpub, path }
+    const parsed = parseKeyExpr(desc)
+    return { type: 'wpkh', ...parsed }
   }
 
   // tr(xpub...)
   let m = desc.match(/^tr\(([^)]*)\)$/)
   if (m) {
-    const { xpub, path } = splitXpubPath(m[1])
-    return { type: 'tr', xpub, path }
+    const parsed = parseKeyExpr(m[1])
+    return { type: 'tr', ...parsed }
   }
 
   // wpkh(xpub...)
   m = desc.match(/^wpkh\(([^)]*)\)$/)
   if (m) {
-    const { xpub, path } = splitXpubPath(m[1])
-    return { type: 'wpkh', xpub, path }
+    const parsed = parseKeyExpr(m[1])
+    return { type: 'wpkh', ...parsed }
   }
 
   // pkh(xpub...)
   m = desc.match(/^pkh\(([^)]*)\)$/)
   if (m) {
-    const { xpub, path } = splitXpubPath(m[1])
-    return { type: 'pkh', xpub, path }
+    const parsed = parseKeyExpr(m[1])
+    return { type: 'pkh', ...parsed }
   }
 
   // sh(wpkh(xpub...))
   m = desc.match(/^sh\(wpkh\(([^)]*)\)\)$/)
   if (m) {
-    const { xpub, path } = splitXpubPath(m[1])
-    return { type: 'shwpkh', xpub, path }
+    const parsed = parseKeyExpr(m[1])
+    return { type: 'shwpkh', ...parsed }
+  }
+
+  // wsh(sortedmulti(M,key1,key2,...)) — P2WSH multisig
+  m = desc.match(/^wsh\(sortedmulti\((\d+),(.*)\)\)$/)
+  if (m) {
+    const M = parseInt(m[1], 10)
+    const keyExprs = m[2].split(/,(?![^[]*\])/) // split on commas not inside [origin]
+    const parsedKeys = keyExprs.map((ke) => parseKeyExpr(ke.trim()))
+    return { type: 'wsh', M, keys: parsedKeys, paths: parsedKeys[0].paths }
   }
 
   throw new Error(`Unsupported descriptor format: ${descriptor}`)
 }
 
-/** Derive address at index i for a parsed descriptor node. */
+/** Derive address at index i for a parsed descriptor node.
+ *  Handles key origins, multipaths (<0;1>), trailing /N paths, and multisig. */
 function deriveAddress(parsed, i) {
-  // Apply the descriptor path (e.g. /0/), then the address index.
-  // nodeFromXpubPath advances through all non-wildcard components.
-  const { node } = nodeFromXpubPath(parsed.xpub, parsed.path)
+  if (parsed.type === 'wsh') {
+    // Multisig: derive each key's pubkey at index i, sort, redeem.
+    // Path = origin (e.g. 45h/0h/1h/0) + branch (<0;1> -> 0 or 1) + index.
+    const pubkeys = parsed.keys.map((k) => {
+      let node = bip32.fromBase58(k.xpub)
+      if (k.originPath) node = derivePath(node, k.originPath)
+      const branch = k.trailing || `/${(k.paths && k.paths[0]) || '0'}`
+      if (branch) node = derivePath(node, branch)
+      return node.derive(i).publicKey
+    })
+    pubkeys.sort(Buffer.compare)
+    const redeem = bitcoin.payments.p2wsh({
+      redeem: bitcoin.payments.p2ms({ m: parsed.M, pubkeys, network: NETWORK }),
+      network: NETWORK,
+    })
+    return redeem.address
+  }
+
+  let node = bip32.fromBase58(parsed.xpub)
+
+  // Apply the key origin path (from [fp/.../N])
+  if (parsed.originPath) node = derivePath(node, parsed.originPath)
+
+  // The trailing path before the wildcard is the account/change level;
+  // use path 0 (or the multipath branch 0) by default.
+  const branch = (parsed.trailing || '') ? parsed.trailing : (parsed.paths && parsed.paths[0] ? `/${parsed.paths[0]}` : '')
+  if (branch) node = derivePath(node, branch)
+
   const child = node.derive(i)
   const pubkey = child.publicKey
 
@@ -142,32 +218,63 @@ async function balanceFromMempool(address) {
          (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
 }
 
-/** Query balance via Bitcoin Core RPC: getreceivedbyaddress per derived address. */
+/** Query balance via Bitcoin Core RPC using scantxoutset (no wallet needed).
+ *  Auth comes from the read-only mounted cookie at /mnt/bitcoind/.cookie
+ *  (format: __cookie__:<password>) — no credentials in config. */
 async function balanceFromBitcoind(addresses) {
-  const auth = Buffer.from(`${BITCOIND_USER}:${BITCOIND_PASS}`).toString('base64')
-  let total = 0
-  for (const addr of addresses) {
-    const body = JSON.stringify({
-      jsonrpc: '1.0',
-      id: 'wallet-helper',
-      method: 'getreceivedbyaddress',
-      params: [addr, 0],
-    })
-    const res = await fetch(`${BITCOIND_RPC}/wallet/`, {
+  // Cookie path: the bitcoind main volume is mounted at /mnt/bitcoind
+  let auth
+  try {
+    const fs = await import('node:fs')
+    const cookie = fs.readFileSync('/mnt/bitcoind/.cookie', 'utf8').trim()
+    // Format: __cookie__:<password>
+    const [user, pass] = cookie.split(':')
+    auth = Buffer.from(`${user}:${pass}`).toString('base64')
+  } catch (e) {
+    console.error(`Could not read bitcoind cookie: ${e.message}`)
+    return null // fall back to mempool
+  }
+
+  // scantxoutset with a descriptor per address. Batch in one call.
+  // Note: scans the UTXO set — no wallet import/rescan needed.
+  const scanObjects = addresses.map((a) => ({
+    desc: `addr(${a})`,
+    range: 0,
+  }))
+
+  const body = JSON.stringify({
+    jsonrpc: '1.0',
+    id: 'wallet-helper',
+    method: 'scantxoutset',
+    params: ['start', scanObjects],
+  })
+
+  let res
+  try {
+    res = await fetch(`${BITCOIND_RPC}/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
       body,
     })
-    if (!res.ok) {
-      const txt = await res.text()
-      // Bitcoind may not have a wallet loaded; fall back to public API for this call
-      console.error(`bitcoind RPC error for ${addr}: ${res.status} ${txt.slice(0, 120)}`)
-      return null
-    }
-    const data = await res.json()
-    if (data.result !== undefined) total += data.result * 1e8
+  } catch (e) {
+    console.error(`bitcoind RPC connect error: ${e.message}`)
+    return null
   }
-  return total
+  if (!res.ok) {
+    const txt = await res.text()
+    console.error(`bitcoind RPC error: ${res.status} ${txt.slice(0, 120)}`)
+    return null
+  }
+  const data = await res.json()
+  if (data.error) {
+    console.error(`bitcoind RPC error: ${JSON.stringify(data.error)}`)
+    return null
+  }
+  // scantxoutset result: { success, total_amount, ... }
+  if (data.result && data.result.total_amount !== undefined) {
+    return Math.round(data.result.total_amount * 1e8)
+  }
+  return null
 }
 
 async function handle(req, res) {
@@ -194,8 +301,13 @@ async function handle(req, res) {
       try {
         const parsed = parseDescriptor(w.descriptor)
         const addresses = []
-        for (let i = 0; i < ADDR_SCAN; i++) {
-          addresses.push(deriveAddress(parsed, i))
+        // Derive from every multipath branch (external + change for <0;1>)
+        const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
+        for (const branch of branches) {
+          const branchParsed = { ...parsed, trailing: `/${branch}` }
+          for (let i = 0; i < ADDR_SCAN; i++) {
+            addresses.push(deriveAddress(branchParsed, i))
+          }
         }
 
         let balanceSats = null
@@ -203,16 +315,12 @@ async function handle(req, res) {
           balanceSats = await balanceFromBitcoind(addresses)
         }
         if (balanceSats === null) {
-          // Public fallback: query each address (parallel, small batches)
-          const chunks = []
-          for (let i = 0; i < addresses.length; i += 5) {
-            chunks.push(
-              await Promise.all(
-                addresses.slice(i, i + 5).map((a) => balanceFromMempool(a).catch(() => 0)),
-              ),
-            )
-          }
-          balanceSats = chunks.flat().reduce((a, b) => a + b, 0)
+          // Public fallback: query all addresses in parallel (mempool.space
+          // handles bursts; parallel avoids the serial N×RTT timeout)
+          const balances = await Promise.all(
+            addresses.map((a) => balanceFromMempool(a).catch(() => 0)),
+          )
+          balanceSats = balances.reduce((a, b) => a + b, 0)
         }
 
         results.push({

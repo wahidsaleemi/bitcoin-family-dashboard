@@ -37,6 +37,23 @@ export const main = sdk.setupMain(async ({ effects }) => {
     console.info('Bitcoin Core not detected — watch-only wallets use public mempool.space')
   }
 
+  // Mount bitcoind's volume read-only so the helper can read the RPC cookie
+  // (.cookie) for seamless authenticated RPC — no credentials in config.
+  const mounts = sdk.Mounts.of()
+    .mountVolume({
+      volumeId: 'main',
+      subpath: null,
+      mountpoint: '/data',
+      readonly: false,
+    })
+    .mountDependency({
+      dependencyId: 'bitcoind',
+      volumeId: 'main',
+      subpath: 'main',
+      mountpoint: '/mnt/bitcoind',
+      readonly: true,
+    } as any)
+
   function safeHost(url: string): string {
     try {
       return new URL(url).host
@@ -77,12 +94,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     subcontainer: sdk.SubContainer.of(
       effects,
       { imageId: 'bitcoin-family-dashboard' },
-      sdk.Mounts.of().mountVolume({
-        volumeId: 'main',
-        subpath: null,
-        mountpoint: '/data',
-        readonly: false,
-      }),
+      mounts,
       'nginx',
     ),
     exec: {
