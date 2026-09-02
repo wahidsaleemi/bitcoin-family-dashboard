@@ -4,7 +4,7 @@ import { uiPort } from './utils'
 import { storeJson } from './fileModels/store.json'
 
 const COINBASE_TICKER_URL = 'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
-const BINANCE_TICKER_URL = 'https://data-api.binance.vision/api/v3/ticker/price?symbol=BTCUSD'
+const BINANCE_TICKER_URL = 'https://data-api.binance.vision/api/v3/ticker/24hr?symbol=BTCUSD'
 const BITSTAMP_TICKER_URL = 'https://www.bitstamp.net/api/v2/ticker/btcusd/'
 
 export const main = sdk.setupMain(async ({ effects }) => {

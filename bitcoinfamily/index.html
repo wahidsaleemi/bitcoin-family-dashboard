@@ -423,8 +423,6 @@ function escapeHtml(text) {
 }
 
 // ── Price Fetching (all via server proxy — no CORS issues) ─────
-const CG = '/api/cg'; // proxied to https://api.coingecko.com/api/v3
-
 async function fetchJSON(url, opts) {
     const resp = await fetch(url, opts);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${url}`);
@@ -459,13 +457,19 @@ async function fetchPriceFromAPI() {
     }
 
     if (source.type === 'coinbase') {
-        // Coinbase Exchange: /api/price proxies to
-        // https://api.exchange.coinbase.com/products/BTC-USD/ticker
-        // Returns { price: "78178.98", ... } — no 24h change.
+        // Coinbase Exchange: /api/price proxies to the ticker
+        // Returns { price, ... }; /api/cbstats has open vs last for 24h change.
         try {
-            const data = await fetchJSON('/api/price');
-            const currentPrice = parseFloat(data.price);
-            return formatPriceData(currentPrice, 0);
+            const [ticker, stats] = await Promise.all([
+                fetchJSON('/api/price'),
+                fetchJSON('/api/cbstats')
+            ]);
+            const currentPrice = parseFloat(ticker.price);
+            const open = parseFloat(stats.open);
+            const hourChangePercentage = open > 0
+                ? ((currentPrice - open) / open) * 100
+                : 0;
+            return formatPriceData(currentPrice, hourChangePercentage);
         } catch (e) {
             console.error('Coinbase price error:', e);
             return null;
@@ -473,13 +477,13 @@ async function fetchPriceFromAPI() {
     }
 
     if (source.type === 'binance') {
-        // Binance: /api/price proxies to
-        // https://data-api.binance.vision/api/v3/ticker/price?symbol=BTCUSD
-        // Returns { symbol, price: "77583.00" } — no 24h change.
+        // Binance: /api/price proxies to the 24hr ticker
+        // Returns { lastPrice, priceChangePercent, ... }.
         try {
             const data = await fetchJSON('/api/price');
-            const currentPrice = parseFloat(data.price);
-            return formatPriceData(currentPrice, 0);
+            const currentPrice = parseFloat(data.lastPrice);
+            const hourChangePercentage = parseFloat(data.priceChangePercent || 0);
+            return formatPriceData(currentPrice, hourChangePercentage);
         } catch (e) {
             console.error('Binance price error:', e);
             return null;
@@ -501,12 +505,13 @@ async function fetchPriceFromAPI() {
         }
     }
 
-    // Fallback: CoinGecko via proxy (legacy configs)
+    // Fallback: Binance (legacy/unknown configs)
     try {
-        const data = await fetchJSON(`${CG}/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true`);
-        return formatPriceData(data.bitcoin.usd, data.bitcoin.usd_24h_change);
+        const data = await fetchJSON('/api/bn/klines?symbol=BTCUSDT&interval=1d&limit=1');
+        const currentPrice = parseFloat(data[0][4]);
+        return formatPriceData(currentPrice, 0);
     } catch (e) {
-        console.error('CoinGecko price error:', e);
+        console.error('Price fallback error:', e);
         return null;
     }
 }
@@ -580,34 +585,36 @@ function updatePrice() {
     }).catch(e => console.error('Price update error:', e));
 }
 
-// ── Historical Prices (CoinGecko via proxy) ────────────────────
-async function fetchHistoricalPrice(daysAgo) {
-    const date = new Date();
-    date.setDate(date.getDate() - daysAgo);
-    const dd = ("0" + date.getDate()).slice(-2);
-    const mm = ("0" + (date.getMonth() + 1)).slice(-2);
-    const yyyy = date.getFullYear();
-
+// ── Historical Prices (Binance klines via proxy) ──────────────
+async function updateHistoricalPrices() {
     try {
-        const data = await fetchJSON(`${CG}/coins/bitcoin/history?date=${dd}-${mm}-${yyyy}`);
-        return data.market_data?.current_price?.usd ?? 0;
+        // Fetch a year of daily closes in one call; pick the close closest
+        // to 7/30/365 days ago.
+        const data = await fetchJSON(`/api/bn/klines?symbol=BTCUSDT&interval=1d&limit=370`);
+        const closes = data.map(k => ({ ts: k[0], close: parseFloat(k[4]) }));
+
+        const now = Date.now();
+        const days = [7, 30, 365];
+        const targets = days.map(d => now - d * 86400 * 1000);
+
+        const fmt = (p) => "$" + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        targets.forEach((target, i) => {
+            // Find the candle closest to the target time
+            let best = closes[0];
+            let bestDiff = Infinity;
+            for (const c of closes) {
+                const diff = Math.abs(c.ts - target);
+                if (diff < bestDiff) { bestDiff = diff; best = c; }
+            }
+            const el = document.getElementById(
+                i === 0 ? 'price-last-week' : i === 1 ? 'price-last-month' : 'price-last-year'
+            );
+            if (el && best) el.innerText = fmt(best.close);
+        });
     } catch (e) {
         console.error('Historical price error:', e);
-        return 0;
     }
-}
-
-async function updateHistoricalPrices() {
-    const [week, month, year] = await Promise.all([
-        fetchHistoricalPrice(7),
-        fetchHistoricalPrice(30),
-        fetchHistoricalPrice(365),
-    ]);
-
-    const fmt = (p) => "$" + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (week) document.getElementById('price-last-week').innerText = fmt(week);
-    if (month) document.getElementById('price-last-month').innerText = fmt(month);
-    if (year) document.getElementById('price-last-year').innerText = fmt(year);
 }
 
 // ── Pexels Background Rotation ─────────────────────────────────
@@ -650,8 +657,8 @@ async function fetchPexelsBackground() {
 
 // ── Chart (multi-window: 30d, 1y, 10y — rotate) ───────────────
 const CHART_WINDOWS = [
-    { key: '30d', title: '30-day Price Graph', days: 30, source: 'coingecko', logScale: false },
-    { key: '1y', title: '1-year Price Graph', days: 365, source: 'coingecko', logScale: false },
+    { key: '30d', title: '30-day Price Graph', days: 30, source: 'binance', logScale: false },
+    { key: '1y', title: '1-year Price Graph', days: 365, source: 'binance', logScale: false },
     { key: '10y', title: '10-year Price Graph', days: 3650, source: 'blockchain', logScale: true },
 ];
 let chartDataCache = { '30d': null, '1y': null, '10y': null };
@@ -674,9 +681,11 @@ async function fetchChartWindow(window) {
             value: p.y
         }));
     }
-    // CoinGecko (30d, 1y): /api/cg/coins/bitcoin/market_chart?days=N
-    const data = await fetchJSON(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=${window.days}`);
-    const prices = data.prices.map(p => ({ date: new Date(p[0]), value: p[1] }));
+    // Binance daily klines for 30d and 1y:
+    // /api/bn/klines?symbol=BTCUSDT&interval=1d&limit=N
+    // Returns [[openTime_ms, open, high, low, close, ...], ...]
+    const data = await fetchJSON(`/api/bn/klines?symbol=BTCUSDT&interval=1d&limit=${window.days}`);
+    const prices = data.map(k => ({ date: new Date(k[0]), value: parseFloat(k[4]) }));
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const filtered = [];

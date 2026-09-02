@@ -26,6 +26,26 @@ server {
         add_header Cache-Control "no-store";
     }
 
+    # Coinbase Exchange stats for 24h change (open vs last):
+    # /api/cbstats -> https://api.exchange.coinbase.com/products/BTC-USD/stats
+    location = /api/cbstats {
+        proxy_pass https://api.exchange.coinbase.com/products/BTC-USD/stats;
+        proxy_ssl_server_name on;
+        proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        proxy_read_timeout 15s;
+        proxy_set_header Host api.exchange.coinbase.com;
+    }
+
+    # Binance pass-through for chart history (klines):
+    # /api/bn/klines?... -> https://data-api.binance.vision/api/v3/klines?...
+    location /api/bn/ {
+        proxy_pass https://data-api.binance.vision/api/v3/;
+        proxy_ssl_server_name on;
+        proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        proxy_read_timeout 15s;
+        proxy_set_header Host data-api.binance.vision;
+    }
+
     # Blockchain.com pass-through for long-range price history:
     # /api/bc/market-price?... -> https://api.blockchain.info/charts/market-price?...
     location /api/bc/ {
@@ -49,16 +69,6 @@ server {
         proxy_read_timeout 15s;
         proxy_set_header Host api.pexels.com;
         proxy_set_header Authorization $pexels_auth_header;
-    }
-
-    # CoinGecko pass-through for chart + historical endpoints:
-    # /api/cg/coins/bitcoin/... -> https://api.coingecko.com/api/v3/...
-    location /api/cg/ {
-        proxy_pass https://api.coingecko.com/api/v3/;
-        proxy_ssl_server_name on;
-        proxy_ssl_protocols TLSv1.2 TLSv1.3;
-        proxy_read_timeout 15s;
-        proxy_set_header Host api.coingecko.com;
     }
 
     # Configured price source, resolved by main.ts into PRICE_UPSTREAM
