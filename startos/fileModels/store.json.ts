@@ -19,6 +19,13 @@ const pexelsSchema = z.object({
   apiKey: z.string().catch(''),
 })
 
+// Watch-only wallet binding: member name -> output descriptor.
+// UI is wired; balance fetching is implemented later.
+const watchOnlyWalletSchema = z.object({
+  memberName: z.string(),
+  descriptor: z.string(),
+})
+
 const configSchema = z.object({
   title: z.string().catch('Bitcoin Family Dashboard'),
   familyMembers: z.array(familyMemberSchema).catch([
@@ -31,11 +38,13 @@ const configSchema = z.object({
   ]),
   priceSource: priceSourceSchema.catch({ type: 'coinbase', apiUrl: '', apiKey: '' }),
   pexels: pexelsSchema.catch({ enabled: false, apiKey: '' }),
+  watchOnlyWallets: z.array(watchOnlyWalletSchema).catch([]),
 })
 
 export type FamilyMember = z.infer<typeof familyMemberSchema>
 export type PriceSource = z.infer<typeof priceSourceSchema>
 export type PexelsConfig = z.infer<typeof pexelsSchema>
+export type WatchOnlyWallet = z.infer<typeof watchOnlyWalletSchema>
 export type DashboardConfig = z.infer<typeof configSchema>
 
 export const storeJson = FileHelper.json(

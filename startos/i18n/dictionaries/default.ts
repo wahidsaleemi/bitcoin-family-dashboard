@@ -48,6 +48,13 @@ const dict = {
   'Get a free key at https://www.pexels.com/api/': 48,
   'Configure Background': 49,
   'Rotate the dashboard background using Pexels photos': 50,
+  // actions/watch-only-wallet.ts
+  'Watch-Only Wallet': 54,
+  'Attach a Bitcoin output descriptor to a family member. Balance fetching comes later.': 55,
+  'Select Member': 56,
+  'Choose which family member this wallet belongs to': 57,
+  'Output Descriptor': 58,
+  'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balance fetching will be wired up later.': 59,
 } as const
 
 /**

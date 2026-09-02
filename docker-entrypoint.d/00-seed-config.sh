@@ -28,7 +28,8 @@ if [ ! -f /data/config.json ]; then
     "pexels": {
         "enabled": false,
         "apiKey": ""
-    }
+    },
+    "watchOnlyWallets": []
 }
 SEED_EOF
 fi

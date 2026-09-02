@@ -21,6 +21,10 @@ All settings are managed from the StartOS **Actions** menu for this service:
 - **Configure Price Source** — choose **Coinbase Exchange** (default, free, no API key), **Binance** (free), **Bitstamp** (free), or **Custom API** with your own endpoint URL and API key.
 - **Configure Background** — enable rotating background photos from Pexels (free API key required: [https://www.pexels.com/api/](https://www.pexels.com/api/)). When enabled, a new photo is fetched every 5 minutes.
 
+### Advanced
+
+- **Watch-Only Wallet** — attach a Bitcoin output descriptor to a family member. The UI saves the binding; balance fetching will be enabled in a future release.
+
 ## Dark Mode
 
 Click the half-moon button (top-right, next to the fullscreen icon) to toggle dark mode. Your preference is remembered in the browser. In dark mode the dashboard panels and chart adapt to a near-black theme.

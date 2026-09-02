@@ -10,6 +10,7 @@ function defaultConfig(): DashboardConfig {
     familyMembers: [],
     priceSource: { type: 'coinbase', apiUrl: '', apiKey: '' },
     pexels: { enabled: false, apiKey: '' },
+    watchOnlyWallets: [],
   }
 }
 

@@ -23,6 +23,7 @@ export const seedConfig = async (effects: T.Effects) => {
     ],
     priceSource: { type: 'coinbase', apiUrl: '', apiKey: '' },
     pexels: { enabled: false, apiKey: '' },
+    watchOnlyWallets: [],
   }
 
   await storeJson.write(effects, defaultConfig)

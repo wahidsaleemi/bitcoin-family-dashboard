@@ -14,6 +14,7 @@ function defaultConfig(): DashboardConfig {
     ],
     priceSource: { type: 'coinbase', apiUrl: '', apiKey: '' },
     pexels: { enabled: false, apiKey: '' },
+    watchOnlyWallets: [],
   }
 }
 
