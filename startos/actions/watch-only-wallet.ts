@@ -49,7 +49,7 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
     warning: null,
     visibility: 'enabled',
     allowedStatuses: 'any',
-    group: 'Advanced',
+    group: 'Settings',
   },
   watchOnlyInput,
   async () => {

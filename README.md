@@ -76,6 +76,7 @@ Install via **Sideload Service**. On first start the container seeds `config.jso
 | **Update Family Member** | Change BTC holdings or cost basis |
 | **Configure Price Source** | Pick Coinbase Exchange (default), Binance, Bitstamp, or a Custom API |
 | **Configure Background** | Enable/disable rotating Pexels landscape backgrounds and set the API key |
+| **Watch-Only Wallet** | Attach a Bitcoin output descriptor to a member; balances from Bitcoin Core or mempool.space |
 
 ## Tasks
 

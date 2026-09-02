@@ -241,9 +241,11 @@ function buildScanDescriptor(parsed, branch) {
   }
 }
 
+const SCAN_RANGE = 500 // explicit scan window per branch — covers sparse wallets, scans in seconds
+
 /** Query the whole wallet balance via Bitcoin Core RPC scantxoutset.
- *  One call scans the full descriptor range (up to 10000 addresses per branch),
- *  no wallet import/rescan needed. Auth from mounted .cookie. */
+ *  First aborts any stale scan (from a timed-out prior request), then starts
+ *  a fresh scan with a sane range. One call, no wallet import needed. */
 async function balanceFromBitcoind(parsed) {
   let auth
   try {
@@ -258,49 +260,43 @@ async function balanceFromBitcoind(parsed) {
     return null
   }
 
+  const rpc = async (method, params) => {
+    const res = await fetch(`${BITCOIND_RPC}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+      body: JSON.stringify({ jsonrpc: '1.0', id: 'wallet-helper', method, params }),
+    })
+    if (!res.ok) {
+      const txt = await res.text()
+      console.error(`bitcoind RPC error ${method}: ${res.status} ${txt.slice(0, 160)}`)
+      return null
+    }
+    const data = await res.json()
+    if (data.error) {
+      console.error(`bitcoind RPC error ${method}: ${JSON.stringify(data.error)}`)
+      return null
+    }
+    return data.result
+  }
+
+  // Abort any stale scan left by a timed-out prior request
+  try { await rpc('scantxoutset', ['abort']) } catch {}
+
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
   const scanObjects = branches.map((b) => ({
     desc: buildScanDescriptor(parsed, b),
-    range: 10000,
+    range: SCAN_RANGE,
   }))
 
-  const body = JSON.stringify({
-    jsonrpc: '1.0',
-    id: 'wallet-helper',
-    method: 'scantxoutset',
-    params: ['start', scanObjects],
-  })
-
-  let res
-  try {
-    res = await fetch(`${BITCOIND_RPC}/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
-      body,
-    })
-  } catch (e) {
-    console.error(`bitcoind RPC connect error: ${e.message}`)
-    return null
-  }
-  if (!res.ok) {
-    const txt = await res.text()
-    console.error(`bitcoind RPC error: ${res.status} ${txt.slice(0, 120)}`)
-    return null
-  }
-  const data = await res.json()
-  if (data.error) {
-    console.error(`bitcoind RPC error: ${JSON.stringify(data.error)}`)
-    return null
-  }
-  if (data.result && data.result.total_amount !== undefined) {
-    return Math.round(data.result.total_amount * 1e8)
+  const result = await rpc('scantxoutset', ['start', scanObjects])
+  if (result && result.total_amount !== undefined) {
+    return Math.round(result.total_amount * 1e8)
   }
   return null
 }
 
 const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
 const DEFAULT_RANGE = 200 // mempool fallback window per branch (rate-limit friendly)
-const MAX_SCAN = 10000 // safety cap (bitcoind scantxoutset range)
 
 /** Query an address's activity (tx count) + balance from mempool.space. */
 async function addrInfoFromMempool(address) {
