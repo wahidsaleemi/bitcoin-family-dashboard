@@ -24,7 +24,7 @@ const pexelsSchema = z.object({
 const watchOnlyWalletSchema = z.object({
   memberName: z.string(),
   descriptor: z.string(),
-  source: z.enum(['bitcoind', 'mempool']).catch('bitcoind'),
+  source: z.enum(['bitcoind', 'mempool']).catch('mempool'),
 })
 
 const configSchema = z.object({

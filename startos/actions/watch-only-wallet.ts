@@ -52,7 +52,7 @@ const watchOnlyUnion = Value.dynamicUnion(async ({ prefill }: any) => {
       name: m.name,
       spec: memberWalletSpec(
         m.name,
-        existing?.source ?? 'bitcoind',
+        existing?.source ?? 'mempool',
         existing?.descriptor ?? '',
       ),
     }
@@ -95,7 +95,7 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
       member: {
         selection: first?.name ?? '',
         value: {
-          source: existing?.source ?? 'bitcoind',
+          source: existing?.source ?? 'mempool',
           descriptor: existing?.descriptor ?? '',
         },
       },
