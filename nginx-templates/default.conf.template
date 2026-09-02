@@ -48,8 +48,11 @@ server {
 
     # Blockchain.com pass-through for long-range price history:
     # /api/bc/market-price?... -> https://api.blockchain.info/charts/market-price?...
+    # resolver + ipv6=off forces IPv4 (containers have no IPv6 route).
     location /api/bc/ {
-        proxy_pass https://api.blockchain.info/charts/;
+        resolver 1.1.1.1 8.8.8.8 ipv6=off valid=300s;
+        set $bc_upstream https://api.blockchain.info;
+        proxy_pass $bc_upstream/charts/;
         proxy_ssl_server_name on;
         proxy_ssl_protocols TLSv1.2 TLSv1.3;
         proxy_read_timeout 15s;
@@ -62,8 +65,11 @@ server {
     # X-Pexels-Key header; a map translates it to the Authorization header
     # Pexels expects. Falls back to the env-injected key when no header is
     # sent. The key never appears in URLs or logs.
+    # resolver + ipv6=off forces IPv4 (containers have no IPv6 route).
     location /api/pexels/ {
-        proxy_pass https://api.pexels.com/v1/;
+        resolver 1.1.1.1 8.8.8.8 ipv6=off valid=300s;
+        set $pexels_upstream https://api.pexels.com;
+        proxy_pass $pexels_upstream/v1/;
         proxy_ssl_server_name on;
         proxy_ssl_protocols TLSv1.2 TLSv1.3;
         proxy_read_timeout 15s;
@@ -74,7 +80,7 @@ server {
     # Watch-only wallet balance helper (node process, internal port)
     location = /api/wallet-balance {
         proxy_pass http://127.0.0.1:8090/api/wallet-balance;
-        proxy_read_timeout 120s;
+        proxy_read_timeout 150s;
         proxy_set_header Host localhost;
     }
 

@@ -241,11 +241,12 @@ function buildScanDescriptor(parsed, branch) {
   }
 }
 
-const SCAN_RANGE = 500 // explicit scan window per branch — covers sparse wallets, scans in seconds
+const SCAN_RANGE = 300 // explicit scan window per branch — covers sparse wallets
 
 /** Query the whole wallet balance via Bitcoin Core RPC scantxoutset.
- *  First aborts any stale scan (from a timed-out prior request), then starts
- *  a fresh scan with a sane range. One call, no wallet import needed. */
+ *  Starts the scan, then polls scantxoutset status until it completes
+ *  (instead of one long HTTP call that times out). Aborts stale scans
+ *  first, but if a scan is genuinely in progress we wait for it. */
 async function balanceFromBitcoind(parsed) {
   let auth
   try {
@@ -273,14 +274,35 @@ async function balanceFromBitcoind(parsed) {
     }
     const data = await res.json()
     if (data.error) {
+      // -8 = "Scan already in progress" — return a sentinel so the caller waits
+      if (data.error.code === -8) return { scanInProgress: true }
       console.error(`bitcoind RPC error ${method}: ${JSON.stringify(data.error)}`)
       return null
     }
     return data.result
   }
 
-  // Abort any stale scan left by a timed-out prior request
-  try { await rpc('scantxoutset', ['abort']) } catch {}
+  // If a scan is already running, wait for it rather than abort (aborting
+  // discards progress and the next start just conflicts again).
+  let status = await rpc('scantxoutset', ['status'])
+  if (status && status.scanning) {
+    // Poll until done (max ~2 min)
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 5000))
+      status = await rpc('scantxoutset', ['status'])
+      if (!status || !status.scanning) break
+    }
+    if (status && status.scanning) {
+      console.error('scantxoutset scan still in progress after 2 min, giving up')
+      return null
+    }
+    if (status && status.total_amount !== undefined) {
+      return Math.round(status.total_amount * 1e8)
+    }
+  }
+
+  // No scan running — abort any stale one (harmless), then start fresh
+  await rpc('scantxoutset', ['abort'])
 
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
   const scanObjects = branches.map((b) => ({
@@ -288,10 +310,24 @@ async function balanceFromBitcoind(parsed) {
     range: SCAN_RANGE,
   }))
 
-  const result = await rpc('scantxoutset', ['start', scanObjects])
-  if (result && result.total_amount !== undefined) {
-    return Math.round(result.total_amount * 1e8)
+  const startResult = await rpc('scantxoutset', ['start', scanObjects])
+  if (startResult && startResult.scanning === false && startResult.total_amount !== undefined) {
+    return Math.round(startResult.total_amount * 1e8)
   }
+
+  // Scan started (or was already running) — poll status until done
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 5000))
+    status = await rpc('scantxoutset', ['status'])
+    if (!status) return null
+    if (!status.scanning) {
+      if (status.total_amount !== undefined) {
+        return Math.round(status.total_amount * 1e8)
+      }
+      return null
+    }
+  }
+  console.error('scantxoutset scan did not finish within 2 min')
   return null
 }
 
