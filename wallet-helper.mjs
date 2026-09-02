@@ -242,13 +242,20 @@ function buildScanDescriptor(parsed, branch) {
 }
 
 const SCAN_RANGE = 300 // descriptor import range (like importdescriptors range)
-const WATCH_WALLET = 'watchonly2' // dedicated watch-only wallet (v2 — stale v1 had private keys)
+
+/** Wallet name for a member: watchonly_<slug> so each member's balance is
+ *  isolated (a shared wallet would total across all descriptors). */
+function walletNameFor(memberName) {
+  const slug = memberName.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 20)
+  return `watchonly_${slug || 'member'}`
+}
 
 /** Query the whole wallet balance via Bitcoin Core RPC using a watch-only
  *  wallet: import the descriptor once (range [0, N]), then getbalance —
  *  near-instant on every refresh (no full UTXO scan per request).
- *  The import is idempotent: re-importing an existing descriptor is a no-op. */
+ *  Each member gets their own wallet so balances stay isolated. */
 async function balanceFromBitcoind(parsed, memberName) {
+  const WATCH_WALLET = walletNameFor(memberName)
   let auth
   try {
     const fs = await import('node:fs')
