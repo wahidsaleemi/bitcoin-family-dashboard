@@ -248,7 +248,9 @@ async function balanceFromBitcoind(parsed) {
   let auth
   try {
     const fs = await import('node:fs')
-    const cookie = fs.readFileSync('/mnt/bitcoind/main/.cookie', 'utf8').trim()
+    // The whole-volume mount resolves the chain-data dir directly at the
+    // mountpoint, so the cookie is at /mnt/bitcoind/.cookie (not main/.cookie).
+    const cookie = fs.readFileSync('/mnt/bitcoind/.cookie', 'utf8').trim()
     const [user, pass] = cookie.split(':')
     auth = Buffer.from(`${user}:${pass}`).toString('base64')
   } catch (e) {
