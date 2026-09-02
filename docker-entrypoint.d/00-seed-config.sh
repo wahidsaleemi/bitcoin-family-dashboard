@@ -40,3 +40,14 @@ if [ -f /opt/wallet-helper/wallet-helper.mjs ]; then
     echo "Starting wallet-helper..."
     node /opt/wallet-helper/wallet-helper.mjs &
 fi
+
+# Resolve external API hostnames to IPv4 so nginx never attempts IPv6
+# (containers have no IPv6 route). Exported as env vars that envsubst
+# substitutes into the nginx template.
+resolve4() {
+    getent ahostsv4 "$1" 2>/dev/null | awk 'NR==1 {print $1}'
+}
+export PEXELS_IP="$(resolve4 api.pexels.com)"
+export BC_IP="$(resolve4 api.blockchain.info)"
+echo "Pexels IPv4: ${PEXELS_IP:-unresolved} | Blockchain.com IPv4: ${BC_IP:-unresolved}"
+

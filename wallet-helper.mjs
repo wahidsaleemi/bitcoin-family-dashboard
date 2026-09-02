@@ -295,16 +295,31 @@ async function balanceFromBitcoind(parsed, memberName) {
     }
   }
 
-  // 2. Import the descriptors (idempotent; rescan false — we read current balances)
+  // 2. Import the descriptors (idempotent). importdescriptors requires the
+  // checksum (#xxxx) on each descriptor — get it from getdescriptorinfo.
+  // First import rescans full history (timestamp 0); later imports use
+  // 'now' so we never re-rescan.
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
-  const importRequests = branches.map((b) => ({
-    desc: buildScanDescriptor(parsed, b),
-    timestamp: 'now',
-    range: [0, SCAN_RANGE],
-    active: true,
-    internal: b === '1',
-    watchonly: true,
-  }))
+  const importRequests = []
+  for (const b of branches) {
+    const rawDesc = buildScanDescriptor(parsed, b)
+    const info = await rpc('getdescriptorinfo', [rawDesc])
+    if (!info || !info.descriptor) {
+      console.error(`getdescriptorinfo failed for ${rawDesc}`)
+      return null
+    }
+    // Is this descriptor already imported?
+    const existing = await rpc('listdescriptors', [false, info.descriptor], true)
+    const alreadyImported = existing?.descriptors?.some((d) => d.desc === info.descriptor)
+    importRequests.push({
+      desc: info.descriptor, // includes #checksum
+      timestamp: alreadyImported ? 'now' : 0, // rescan only on first import
+      range: [0, SCAN_RANGE],
+      active: true,
+      internal: b === '1',
+      watchonly: true,
+    })
+  }
   const importResult = await rpc('importdescriptors', [importRequests], true)
   if (!importResult) return null
   const failed = importResult.filter((r) => !r.success)

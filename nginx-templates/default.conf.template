@@ -48,11 +48,9 @@ server {
 
     # Blockchain.com pass-through for long-range price history:
     # /api/bc/market-price?... -> https://api.blockchain.info/charts/market-price?...
-    # resolver + ipv6=off forces IPv4 (containers have no IPv6 route).
+    # Uses an IPv4 literal resolved at boot (containers have no IPv6 route).
     location /api/bc/ {
-        resolver 1.1.1.1 8.8.8.8 ipv6=off valid=300s;
-        set $bc_upstream https://api.blockchain.info;
-        proxy_pass $bc_upstream/charts/;
+        proxy_pass https://${BC_IP}/charts/;
         proxy_ssl_server_name on;
         proxy_ssl_protocols TLSv1.2 TLSv1.3;
         proxy_read_timeout 15s;
@@ -65,11 +63,9 @@ server {
     # X-Pexels-Key header; a map translates it to the Authorization header
     # Pexels expects. Falls back to the env-injected key when no header is
     # sent. The key never appears in URLs or logs.
-    # resolver + ipv6=off forces IPv4 (containers have no IPv6 route).
+    # Uses an IPv4 literal resolved at boot (containers have no IPv6 route).
     location /api/pexels/ {
-        resolver 1.1.1.1 8.8.8.8 ipv6=off valid=300s;
-        set $pexels_upstream https://api.pexels.com;
-        proxy_pass $pexels_upstream/v1/;
+        proxy_pass https://${PEXELS_IP}/v1/;
         proxy_ssl_server_name on;
         proxy_ssl_protocols TLSv1.2 TLSv1.3;
         proxy_read_timeout 15s;
