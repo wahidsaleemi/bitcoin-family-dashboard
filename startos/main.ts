@@ -128,10 +128,14 @@ export const main = sdk.setupMain(async ({ effects }) => {
         display: i18n('Watch-only wallet scan'),
         fn: () =>
           sdk.healthCheck.runHealthScript(
-            ['sh', '-c', 'curl -s http://127.0.0.1:8090/api/scan-status'],
+            [
+              'sh',
+              '-c',
+              'for i in 1 2 3 4 5 6 7 8; do out=$(curl -s --max-time 2 http://127.0.0.1:8090/api/scan-status 2>/dev/null) && [ -n "$out" ] && echo "$out" && exit 0; sleep 1; done; exit 1',
+            ],
             subcontainer,
             {
-              timeout: 10000,
+              timeout: 15000,
               errorMessage: i18n('Watch-only wallet scanner is not responding'),
               message: (out) => {
                 try {

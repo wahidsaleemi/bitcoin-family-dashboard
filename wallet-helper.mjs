@@ -284,11 +284,12 @@ async function balanceFromBitcoind(parsed, memberName) {
     return data.result
   }
 
-  // 1. Ensure the watch-only wallet exists
+  // 1. Ensure the watch-only wallet exists (disable_private_keys=true so
+  // watch-only descriptors can be imported)
   const wallets = await rpc('listwalletdir')
   const exists = wallets?.wallets?.some((w) => w.name === WATCH_WALLET)
   if (!exists) {
-    const created = await rpc('createwallet', [WATCH_WALLET, false, true]) // passphrase empty, disable_private_keys=true
+    const created = await rpc('createwallet', [WATCH_WALLET, true, false]) // disable_private_keys=true, blank=false
     if (!created) {
       console.error('Could not create watch-only wallet')
       return null
@@ -308,8 +309,9 @@ async function balanceFromBitcoind(parsed, memberName) {
       console.error(`getdescriptorinfo failed for ${rawDesc}`)
       return null
     }
-    // Is this descriptor already imported?
-    const existing = await rpc('listdescriptors', [false, info.descriptor], true)
+    // Is this descriptor already imported? (listdescriptors takes only
+    // `private` bool — filter in JS)
+    const existing = await rpc('listdescriptors', [false], true)
     const alreadyImported = existing?.descriptors?.some((d) => d.desc === info.descriptor)
     importRequests.push({
       desc: info.descriptor, // includes #checksum
