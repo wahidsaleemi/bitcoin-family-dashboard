@@ -219,14 +219,15 @@ async function balanceFromMempool(address) {
 }
 
 /** Query balance via Bitcoin Core RPC using scantxoutset (no wallet needed).
- *  Auth comes from the read-only mounted cookie at /mnt/bitcoind/.cookie
+ *  Auth comes from the read-only mounted cookie at /mnt/bitcoind/main/.cookie
  *  (format: __cookie__:<password>) — no credentials in config. */
 async function balanceFromBitcoind(addresses) {
-  // Cookie path: the bitcoind main volume is mounted at /mnt/bitcoind
+  // Cookie path: the bitcoind main volume is mounted whole at /mnt/bitcoind;
+  // the cookie lives in the main/ chain-data subdirectory.
   let auth
   try {
     const fs = await import('node:fs')
-    const cookie = fs.readFileSync('/mnt/bitcoind/.cookie', 'utf8').trim()
+    const cookie = fs.readFileSync('/mnt/bitcoind/main/.cookie', 'utf8').trim()
     // Format: __cookie__:<password>
     const [user, pass] = cookie.split(':')
     auth = Buffer.from(`${user}:${pass}`).toString('base64')

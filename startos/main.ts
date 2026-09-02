@@ -39,6 +39,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
 
   // Mount bitcoind's volume read-only so the helper can read the RPC cookie
   // (.cookie) for seamless authenticated RPC — no credentials in config.
+  // Whole-volume mount: the cookie lives at main/.cookie on the volume.
   const mounts = sdk.Mounts.of()
     .mountVolume({
       volumeId: 'main',
@@ -49,7 +50,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     .mountDependency({
       dependencyId: 'bitcoind',
       volumeId: 'main',
-      subpath: 'main',
+      subpath: null,
       mountpoint: '/mnt/bitcoind',
       readonly: true,
     } as any)
