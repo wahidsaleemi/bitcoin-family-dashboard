@@ -26,8 +26,6 @@ const BITCOIND_RPC = process.env.BITCOIND_RPC || '' // e.g. http://10.0.3.1:8332
 const MEMPOOL_API = process.env.MEMPOOL_API || 'https://mempool.space/api'
 const NETWORK = process.env.BITCOIN_NETWORK === 'testnet' ? bitcoin.networks.testnet : bitcoin.networks.bitcoin
 
-const ADDR_SCAN = 25 // derive this many addresses per descriptor for now
-
 /**
  * Strip a descriptor checksum suffix (#xxxxxx) if present.
  */
@@ -155,14 +153,18 @@ function parseDescriptor(descriptor) {
 }
 
 /** Derive address at index i for a parsed descriptor node.
- *  Handles key origins, multipaths (<0;1>), trailing /N paths, and multisig. */
+ *  Handles multipaths (<0;1>), trailing /N paths, and multisig.
+ *
+ *  IMPORTANT: the origin path ([fp/.../N]) is NOT re-applied here — the xpub
+ *  string already encodes its own depth (BIP32). The descriptor's origin is
+ *  informational metadata. The <0;1> branch and * index derive DIRECTLY from
+ *  the xpub. Re-applying the origin double-derives and produces wrong
+ *  addresses (verified: funded address found at direct branch 0 index 136). */
 function deriveAddress(parsed, i) {
   if (parsed.type === 'wsh') {
-    // Multisig: derive each key's pubkey at index i, sort, redeem.
-    // Path = origin (e.g. 45h/0h/1h/0) + branch (<0;1> -> 0 or 1) + index.
+    // Multisig: each key's xpub -> branch -> index, sort pubkeys, redeem.
     const pubkeys = parsed.keys.map((k) => {
       let node = bip32.fromBase58(k.xpub)
-      if (k.originPath) node = derivePath(node, k.originPath)
       const branch = k.trailing || `/${(k.paths && k.paths[0]) || '0'}`
       if (branch) node = derivePath(node, branch)
       return node.derive(i).publicKey
@@ -177,11 +179,8 @@ function deriveAddress(parsed, i) {
 
   let node = bip32.fromBase58(parsed.xpub)
 
-  // Apply the key origin path (from [fp/.../N])
-  if (parsed.originPath) node = derivePath(node, parsed.originPath)
-
   // The trailing path before the wildcard is the account/change level;
-  // use path 0 (or the multipath branch 0) by default.
+  // use path 0 (or the multipath branch 0) by default. Origin NOT applied.
   const branch = (parsed.trailing || '') ? parsed.trailing : (parsed.paths && parsed.paths[0] ? `/${parsed.paths[0]}` : '')
   if (branch) node = derivePath(node, branch)
 
@@ -218,29 +217,49 @@ async function balanceFromMempool(address) {
          (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
 }
 
-/** Query balance via Bitcoin Core RPC using scantxoutset (no wallet needed).
- *  Auth comes from the read-only mounted cookie at /mnt/bitcoind/main/.cookie
- *  (format: __cookie__:<password>) — no credentials in config. */
-async function balanceFromBitcoind(addresses) {
-  // Cookie path: the bitcoind main volume is mounted whole at /mnt/bitcoind;
-  // the cookie lives in the main/ chain-data subdirectory.
+/** Build a scantxoutset descriptor for a parsed wallet descriptor.
+ *  e.g. wpkh(xpub/0/*) or wsh(sortedmulti(2,xpub1/0/*,xpub2/0/*,...))
+ *  with an explicit range so one RPC call scans the whole wallet. */
+function buildScanDescriptor(parsed, branch) {
+  const path = `/${branch}/*`
+  switch (parsed.type) {
+    case 'wsh': {
+      const keys = parsed.keys
+        .map((k) => k.xpub + path)
+        .join(',')
+      return `wsh(sortedmulti(${parsed.M},${keys}))`
+    }
+    case 'tr':
+      return `tr(${parsed.xpub}${path})`
+    case 'pkh':
+      return `pkh(${parsed.xpub}${path})`
+    case 'shwpkh':
+      return `sh(wpkh(${parsed.xpub}${path}))`
+    case 'wpkh':
+    default:
+      return `wpkh(${parsed.xpub}${path})`
+  }
+}
+
+/** Query the whole wallet balance via Bitcoin Core RPC scantxoutset.
+ *  One call scans the full descriptor range (up to 10000 addresses per branch),
+ *  no wallet import/rescan needed. Auth from mounted .cookie. */
+async function balanceFromBitcoind(parsed) {
   let auth
   try {
     const fs = await import('node:fs')
     const cookie = fs.readFileSync('/mnt/bitcoind/main/.cookie', 'utf8').trim()
-    // Format: __cookie__:<password>
     const [user, pass] = cookie.split(':')
     auth = Buffer.from(`${user}:${pass}`).toString('base64')
   } catch (e) {
     console.error(`Could not read bitcoind cookie: ${e.message}`)
-    return null // fall back to mempool
+    return null
   }
 
-  // scantxoutset with a descriptor per address. Batch in one call.
-  // Note: scans the UTXO set — no wallet import/rescan needed.
-  const scanObjects = addresses.map((a) => ({
-    desc: `addr(${a})`,
-    range: 0,
+  const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
+  const scanObjects = branches.map((b) => ({
+    desc: buildScanDescriptor(parsed, b),
+    range: 10000,
   }))
 
   const body = JSON.stringify({
@@ -271,11 +290,28 @@ async function balanceFromBitcoind(addresses) {
     console.error(`bitcoind RPC error: ${JSON.stringify(data.error)}`)
     return null
   }
-  // scantxoutset result: { success, total_amount, ... }
   if (data.result && data.result.total_amount !== undefined) {
     return Math.round(data.result.total_amount * 1e8)
   }
   return null
+}
+
+const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
+const DEFAULT_RANGE = 200 // mempool fallback window per branch (rate-limit friendly)
+const MAX_SCAN = 10000 // safety cap (bitcoind scantxoutset range)
+
+/** Query an address's activity (tx count) + balance from mempool.space. */
+async function addrInfoFromMempool(address) {
+  const url = `${MEMPOOL_API}/address/${address}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
+  const data = await res.json()
+  const stats = data.chain_stats || {}
+  const mempool = data.mempool_stats || {}
+  const bal = (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
+              (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
+  const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
+  return { balanceSats: bal, txCount }
 }
 
 async function handle(req, res) {
@@ -301,27 +337,46 @@ async function handle(req, res) {
     for (const w of wallets) {
       try {
         const parsed = parseDescriptor(w.descriptor)
-        const addresses = []
-        // Derive from every multipath branch (external + change for <0;1>)
-        const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
-        for (const branch of branches) {
-          const branchParsed = { ...parsed, trailing: `/${branch}` }
-          for (let i = 0; i < ADDR_SCAN; i++) {
-            addresses.push(deriveAddress(branchParsed, i))
+        let balanceSats = null
+        let source = 'mempool'
+        let addresses = []
+        let lastUsedIndex = -1
+
+        // Prefer Bitcoin Core: one scantxoutset call scans the whole wallet
+        // descriptor range (both branches, up to 10000 addresses each).
+        if (BITCOIND_RPC) {
+          const r = await balanceFromBitcoind(parsed)
+          if (r !== null) {
+            balanceSats = r
+            source = 'bitcoind'
           }
         }
 
-        let balanceSats = null
-        if (BITCOIND_RPC) {
-          balanceSats = await balanceFromBitcoind(addresses)
-        }
         if (balanceSats === null) {
-          // Public fallback: query all addresses in parallel (mempool.space
-          // handles bursts; parallel avoids the serial N×RTT timeout)
-          const balances = await Promise.all(
-            addresses.map((a) => balanceFromMempool(a).catch(() => 0)),
-          )
-          balanceSats = balances.reduce((a, b) => a + b, 0)
+          // Public fallback: explicit-window scan (like importdescriptors
+          // range [0, N]) — derive DEFAULT_RANGE addresses per branch and
+          // query balances in parallel. No gap heuristic; finds sparse funds.
+          const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
+          for (const branch of branches) {
+            const branchParsed = { ...parsed, trailing: `/${branch}` }
+            const batchSize = 20
+            for (let i = 0; i < DEFAULT_RANGE; i += batchSize) {
+              const batchAddrs = []
+              for (let k = 0; k < batchSize && i + k < DEFAULT_RANGE; k++) {
+                batchAddrs.push(deriveAddress(branchParsed, i + k))
+              }
+              const infos = await Promise.all(
+                batchAddrs.map((a) => addrInfoFromMempool(a).catch(() => ({ balanceSats: 0, txCount: 0 }))),
+              )
+              for (let k = 0; k < infos.length; k++) {
+                balanceSats += infos[k].balanceSats
+                if (infos[k].txCount > 0) lastUsedIndex = Math.max(lastUsedIndex, i + k)
+              }
+              addresses.push(...batchAddrs)
+              // Small delay between batches to respect mempool.space rate limits
+              await new Promise((r) => setTimeout(r, 150))
+            }
+          }
         }
 
         results.push({
@@ -329,7 +384,8 @@ async function handle(req, res) {
           descriptor: w.descriptor,
           balanceSats,
           addresses,
-          source: BITCOIND_RPC ? 'bitcoind' : 'mempool',
+          lastUsedIndex,
+          source,
         })
       } catch (e) {
         results.push({
