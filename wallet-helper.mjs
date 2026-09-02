@@ -391,24 +391,23 @@ async function handle(req, res) {
     const wallets = config.watchOnlyWallets || []
 
     const results = []
-    for (const w of wallets) {
-      try {
-        // Serve from cache if fresh — avoids re-triggering slow rescans on
-        // every dashboard refresh.
-        const cached = balanceCache.get(w.memberName)
-        if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-          results.push({
-            memberName: w.memberName,
-            descriptor: w.descriptor,
-            balanceSats: cached.balanceSats,
-            addresses: [],
-            lastUsedIndex: -1,
-            source: cached.source,
-            cached: true,
-          })
-          continue
+    const processWallet = async (w) => {
+      // Serve from cache if fresh — avoids re-triggering slow rescans on
+      // every dashboard refresh.
+      const cached = balanceCache.get(w.memberName)
+      if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+        return {
+          memberName: w.memberName,
+          descriptor: w.descriptor,
+          balanceSats: cached.balanceSats,
+          addresses: [],
+          lastUsedIndex: -1,
+          source: cached.source,
+          cached: true,
         }
+      }
 
+      try {
         scanStatus = { scanning: true, member: w.memberName, lastScanAt: scanStatus.lastScanAt }
         const parsed = parseDescriptor(w.descriptor)
         let balanceSats = null
@@ -454,26 +453,30 @@ async function handle(req, res) {
           }
         }
 
-        results.push({
+        // Cache the computed balance (even 0) so the next refresh is instant
+        balanceCache.set(w.memberName, { balanceSats, source, at: Date.now() })
+
+        return {
           memberName: w.memberName,
           descriptor: w.descriptor,
           balanceSats,
           addresses,
           lastUsedIndex,
           source,
-        })
-
-        // Cache the computed balance (even 0) so the next refresh is instant
-        balanceCache.set(w.memberName, { balanceSats, source, at: Date.now() })
+        }
       } catch (e) {
-        results.push({
+        return {
           memberName: w.memberName,
           descriptor: w.descriptor,
           balanceSats: null,
           error: e.message,
-        })
+        }
       }
     }
+
+    // Process wallets concurrently so one slow rescan doesn't block the others
+    const processed = await Promise.all(wallets.map((w) => processWallet(w)))
+    results.push(...processed)
 
     scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString() }
 
