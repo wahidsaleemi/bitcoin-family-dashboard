@@ -94,30 +94,59 @@ export const main = sdk.setupMain(async ({ effects }) => {
   console.info(`Proxy upstream: ${priceUpstream} (Host: ${priceHost})`)
   console.info(`Web interface will listen on port ${uiPort}`)
 
-  return sdk.Daemons.of(effects).addDaemon('web', {
-    subcontainer: sdk.SubContainer.of(
-      effects,
-      { imageId: 'bitcoin-family-dashboard' },
-      mounts,
-      'nginx',
-    ),
-    exec: {
-      command: sdk.useEntrypoint(['nginx', '-g', 'daemon off;']),
-      env: {
-        PRICE_UPSTREAM: priceUpstream,
-        PRICE_HOST: priceHost,
-        PEXELS_API_KEY: pexelsKey,
-        BITCOIND_RPC: bitcoindRpcUrl,
+  const subcontainer = sdk.SubContainer.of(
+    effects,
+    { imageId: 'bitcoin-family-dashboard' },
+    mounts,
+    'nginx',
+  )
+
+  return sdk.Daemons.of(effects)
+    .addDaemon('web', {
+      subcontainer,
+      exec: {
+        command: sdk.useEntrypoint(['nginx', '-g', 'daemon off;']),
+        env: {
+          PRICE_UPSTREAM: priceUpstream,
+          PRICE_HOST: priceHost,
+          PEXELS_API_KEY: pexelsKey,
+          BITCOIND_RPC: bitcoindRpcUrl,
+        },
       },
-    },
-    ready: {
-      display: i18n('Web Interface'),
-      fn: () =>
-        sdk.healthCheck.checkPortListening(effects, uiPort, {
-          successMessage: i18n('The web interface is ready'),
-          errorMessage: i18n('The web interface is not ready'),
-        }),
-    },
-    requires: [],
-  })
+      ready: {
+        display: i18n('Web Interface'),
+        fn: () =>
+          sdk.healthCheck.checkPortListening(effects, uiPort, {
+            successMessage: i18n('The web interface is ready'),
+            errorMessage: i18n('The web interface is not ready'),
+          }),
+      },
+      requires: [],
+    })
+    .addHealthCheck('watch-scan', {
+      ready: {
+        display: i18n('Watch-only wallet scan'),
+        fn: () =>
+          sdk.healthCheck.runHealthScript(
+            ['sh', '-c', 'curl -s http://127.0.0.1:8090/api/scan-status'],
+            subcontainer,
+            {
+              timeout: 10000,
+              errorMessage: i18n('Watch-only wallet scanner is not responding'),
+              message: (out) => {
+                try {
+                  const status = JSON.parse(out)
+                  if (status.scanning) {
+                    return `Still scanning watch-only wallet for ${status.member}...`
+                  }
+                  return 'Watch-only wallet scan idle'
+                } catch {
+                  return 'Watch-only wallet scan idle'
+                }
+              },
+            },
+          ),
+      },
+      requires: ['web'],
+    })
 })

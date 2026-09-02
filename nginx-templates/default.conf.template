@@ -78,6 +78,13 @@ server {
         proxy_set_header Host localhost;
     }
 
+    # Scan status for health check (node process, internal port)
+    location = /api/scan-status {
+        proxy_pass http://127.0.0.1:8090/api/scan-status;
+        proxy_read_timeout 10s;
+        proxy_set_header Host localhost;
+    }
+
     # Configured price source, resolved by main.ts into PRICE_UPSTREAM
     location /api/price {
         proxy_pass ${PRICE_UPSTREAM};

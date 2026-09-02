@@ -312,6 +312,8 @@ async function addrInfoFromMempool(address) {
   return { balanceSats: bal, txCount }
 }
 
+let scanStatus = { scanning: false, member: '', lastScanAt: null }
+
 async function handle(req, res) {
   res.setHeader('Content-Type', 'application/json')
   res.setHeader('Cache-Control', 'no-store')
@@ -319,6 +321,14 @@ async function handle(req, res) {
 
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`)
+
+    // Scan status endpoint (used by the StartOS health check)
+    if (url.pathname === '/api/scan-status') {
+      res.writeHead(200)
+      res.end(JSON.stringify(scanStatus))
+      return
+    }
+
     if (url.pathname !== '/api/wallet-balance') {
       res.writeHead(404)
       res.end(JSON.stringify({ error: 'not found' }))
@@ -334,6 +344,7 @@ async function handle(req, res) {
     const results = []
     for (const w of wallets) {
       try {
+        scanStatus = { scanning: true, member: w.memberName, lastScanAt: scanStatus.lastScanAt }
         const parsed = parseDescriptor(w.descriptor)
         let balanceSats = null
         let source = 'mempool'
@@ -395,9 +406,12 @@ async function handle(req, res) {
       }
     }
 
+    scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString() }
+
     res.writeHead(200)
     res.end(JSON.stringify({ wallets: results }))
   } catch (e) {
+    scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString() }
     res.writeHead(500)
     res.end(JSON.stringify({ error: e.message }))
   }

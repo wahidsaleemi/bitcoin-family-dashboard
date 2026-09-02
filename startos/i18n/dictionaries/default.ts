@@ -57,6 +57,8 @@ const dict = {
   'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balance fetching will be wired up later.': 59,
   'Watch-Only Wallet (Advanced)': 60,
   'ADVANCED — totally optional. Attach a Bitcoin output descriptor to a family member to show their on-chain balance on the dashboard. Skip this entirely if you only track holdings manually.': 61,
+  'Watch-only wallet scan': 62,
+  'Watch-only wallet scanner is not responding': 63,
 } as const
 
 /**
