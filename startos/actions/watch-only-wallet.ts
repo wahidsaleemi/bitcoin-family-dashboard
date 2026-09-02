@@ -54,9 +54,12 @@ export const configureWatchOnlyWallet = sdk.Action.withInput(
   watchOnlyInput,
   async () => {
     const config = (await storeJson.read().once()) ?? defaultConfig()
+    const memberName = config.familyMembers?.[0]?.name ?? ''
+    // Prefill with any previously-saved descriptor for this member
+    const existing = config.watchOnlyWallets.find((w) => w.memberName === memberName)
     return {
-      member: config.familyMembers?.[0]?.name ?? '',
-      descriptor: '',
+      member: memberName,
+      descriptor: existing?.descriptor ?? '',
     }
   },
   async ({ effects, input }) => {
