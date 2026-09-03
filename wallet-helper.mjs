@@ -341,18 +341,34 @@ async function balanceFromBitcoind(parsed, memberName) {
 const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
 const DEFAULT_RANGE = 500 // mempool scan window per branch (covers sparse wallets)
 
-/** Query an address's activity (tx count) + balance from mempool.space. */
+/** Query an address's activity (tx count) + balance from mempool.space.
+ *  Retries on 429 (rate limit) with backoff up to 3 attempts. */
 async function addrInfoFromMempool(address) {
   const url = `${MEMPOOL_API}/address/${address}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
-  const data = await res.json()
-  const stats = data.chain_stats || {}
-  const mempool = data.mempool_stats || {}
-  const bal = (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
-              (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
-  const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
-  return { balanceSats: bal, txCount }
+  let lastErr
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url)
+      if (res.status === 429) {
+        // Rate limited — wait and retry (mempool.space is strict about bursts)
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+        continue
+      }
+      if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
+      const data = await res.json()
+      const stats = data.chain_stats || {}
+      const mempool = data.mempool_stats || {}
+      const bal = (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
+                  (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
+      const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
+      return { balanceSats: bal, txCount }
+    } catch (e) {
+      lastErr = e
+      // Transient network hiccup — retry
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+    }
+  }
+  throw lastErr || new Error(`mempool fetch failed for ${address}`)
 }
 
 /** Scan a wallet's balance from mempool.space. Returns { balanceSats, addresses, lastUsedIndex } or null on total failure. */
@@ -361,12 +377,14 @@ async function balanceFromMempool(parsed) {
   let total = 0
   const allAddresses = []
   let lastUsedIndex = -1
-  let failures = 0
+  let networkFailures = 0
   let queries = 0
 
   for (const branch of branches) {
     const branchParsed = { ...parsed, trailing: `/${branch}` }
-    const batchSize = 25
+    // Modest concurrency (10) — mempool.space rate-limits bursts; firing 25
+    // at once caused 429s which were miscounted as unreachable.
+    const batchSize = 10
     for (let i = 0; i < DEFAULT_RANGE; i += batchSize) {
       const batchAddrs = []
       for (let k = 0; k < batchSize && i + k < DEFAULT_RANGE; k++) {
@@ -376,7 +394,7 @@ async function balanceFromMempool(parsed) {
         batchAddrs.map((a) =>
           addrInfoFromMempool(a).then(
             (info) => info,
-            () => { failures++; return { balanceSats: 0, txCount: 0 } },
+            () => { networkFailures++; return { balanceSats: 0, txCount: 0 } },
           ),
         ),
       )
@@ -387,23 +405,22 @@ async function balanceFromMempool(parsed) {
       }
       allAddresses.push(...batchAddrs)
 
-      // Fail fast: if a whole batch failed, mempool.space is unreachable —
-      // don't scan the remaining addresses, return null so the caller can
-      // fall back to bitcoind quickly.
-      if (infos.every((x) => x.balanceSats === 0 && x.txCount === 0) && failures >= batchSize) {
+      // Fail fast: if an entire batch was a network failure (not 429 — those
+      // are retried inside addrInfoFromMempool), mempool.space is unreachable.
+      if (networkFailures >= batchSize) {
         console.error('mempool.space unreachable — aborting scan, falling back')
         return null
       }
 
       // Small delay between batches to respect mempool.space rate limits
-      await new Promise((r) => setTimeout(r, 100))
+      await new Promise((r) => setTimeout(r, 150))
     }
   }
 
   // If mempool.space is completely unreachable (e.g. no internet from the
   // container), every query fails — return null so the caller falls back
   // to bitcoind instead of reporting a bogus 0 balance.
-  if (queries > 0 && failures === queries) {
+  if (queries > 0 && networkFailures === queries) {
     console.error('mempool.space unreachable — all address queries failed')
     return null
   }
