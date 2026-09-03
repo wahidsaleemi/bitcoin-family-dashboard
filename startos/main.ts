@@ -141,6 +141,9 @@ export const main = sdk.setupMain(async ({ effects }) => {
                 try {
                   const status = JSON.parse(out)
                   if (status.scanning) {
+                    if (status.note === 'waiting for providers') {
+                      return `Still scanning watch-only wallet — waiting for balance data...`
+                    }
                     return `Still scanning watch-only wallet for ${status.member}...`
                   }
                   return 'Watch-only wallet scan idle'

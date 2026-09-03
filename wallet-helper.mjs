@@ -342,7 +342,7 @@ async function balanceFromBitcoind(parsed, memberName) {
 }
 
 const GAP_LIMIT = 20 // stop scanning after this many unused addresses past the last used one
-const MAX_RANGE = 500 // hard cap per branch (defensive; gap stop normally hits first)
+const MAX_RANGE = 200 // hard cap per branch (keep scans light for rate-limited public APIs)
 const SCAN_CONCURRENCY = 5 // public APIs rate-limit; keep modest
 const SCAN_BATCH_DELAY_MS = 200 // pause between batches
 
@@ -576,7 +576,12 @@ async function balanceFromMempool(parsed) {
   }
 }
 
-let scanStatus = { scanning: false, member: '', lastScanAt: null }
+let scanStatus = { scanning: false, member: '', lastScanAt: null, note: '' }
+// True when a watch-only wallet is configured but no successful balance has
+// been cached yet (e.g. public providers were rate-limited/unreachable on
+// the last attempt). Keeps the health check from claiming "idle" when the
+// balance is still unknown — the UI shows "still scanning" instead.
+let needsBalance = false
 // Cache of computed balances so refresh requests don't re-trigger slow scans.
 // TTL: 5 minutes (matches the dashboard refresh interval).
 const CACHE_TTL_MS = 5 * 60 * 1000
@@ -592,8 +597,14 @@ async function handle(req, res) {
 
     // Scan status endpoint (used by the StartOS health check)
     if (url.pathname === '/api/scan-status') {
+      // If a wallet needs a balance (no successful scan yet) but no scan is
+      // actively running, report it as scanning so the health check doesn't
+      // misleadingly say "idle". A background tick will retry.
+      const status = (scanStatus.scanning || needsBalance)
+        ? { ...scanStatus, scanning: true }
+        : scanStatus
       res.writeHead(200)
-      res.end(JSON.stringify(scanStatus))
+      res.end(JSON.stringify(status))
       return
     }
 
@@ -603,6 +614,23 @@ async function handle(req, res) {
       return
     }
 
+    // Wallet-balance endpoint (or internal background retry)
+    const wallets = await runBalanceScan()
+    res.writeHead(200)
+    res.end(JSON.stringify({ wallets }))
+  } catch (e) {
+    scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString() }
+    res.writeHead(500)
+    res.end(JSON.stringify({ error: e.message }))
+  }
+}
+
+/** Run a balance scan for all configured watch-only wallets and return the
+ *  per-wallet results. Shared by the HTTP endpoint and the background retry
+ *  tick so a wallet that still needs a balance (e.g. providers were down)
+ *  is retried automatically without waiting for a dashboard refresh. */
+async function runBalanceScan() {
+  try {
     // Config is read from the volume at /data/config.json
     const fs = await import('node:fs')
     const raw = fs.readFileSync('/data/config.json', 'utf8')
@@ -626,7 +654,10 @@ async function handle(req, res) {
       }
 
       try {
-        scanStatus = { scanning: true, member: w.memberName, lastScanAt: scanStatus.lastScanAt }
+        // No fresh balance — mark that we still need one (health check will
+        // keep showing "scanning" until a real balance is obtained).
+        needsBalance = true
+        scanStatus = { scanning: true, member: w.memberName, lastScanAt: scanStatus.lastScanAt, note: 'scanning' }
         const parsed = parseDescriptor(w.descriptor)
         let balanceSats = null
         let source = null
@@ -678,6 +709,9 @@ async function handle(req, res) {
         // Cache the computed balance (even 0) so the next refresh is instant
         balanceCache.set(w.memberName, { balanceSats, source, at: Date.now() })
 
+        // We have a real balance now — the health check can show idle again.
+        needsBalance = false
+
         return {
           memberName: w.memberName,
           descriptor: w.descriptor,
@@ -711,14 +745,13 @@ async function handle(req, res) {
       results.push(result)
     }
 
-    scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString() }
+    scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString(), note: needsBalance ? 'waiting for providers' : '' }
 
-    res.writeHead(200)
-    res.end(JSON.stringify({ wallets: results }))
+    return results
   } catch (e) {
     scanStatus = { scanning: false, member: '', lastScanAt: new Date().toISOString() }
-    res.writeHead(500)
-    res.end(JSON.stringify({ error: e.message }))
+    console.error(`runBalanceScan error: ${e.message}`)
+    return []
   }
 }
 
@@ -730,3 +763,22 @@ probeAllProviders().then(() => {
     console.log(`wallet-helper listening on :${PORT} (bitcoind: ${BITCOIND_RPC || 'none -> mempool'})`)
   })
 })
+
+// Background retry: if any configured wallet still needs a balance (no
+// successful scan yet — e.g. providers were down/rate-limited), retry the
+// scan periodically so the dashboard eventually shows a real balance and
+// the health check can stop reporting "still scanning". Guards against
+// concurrent scans with a simple in-flight flag.
+let scanInFlight = false
+setInterval(async () => {
+  if (scanInFlight) return
+  if (!needsBalance) return
+  scanInFlight = true
+  try {
+    await runBalanceScan()
+  } catch (e) {
+    console.error(`background retry failed: ${e.message}`)
+  } finally {
+    scanInFlight = false
+  }
+}, 2 * 60 * 1000).unref()
