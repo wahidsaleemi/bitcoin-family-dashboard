@@ -341,48 +341,56 @@ async function balanceFromBitcoind(parsed, memberName) {
   return Math.round(bal * 1e8)
 }
 
-const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
-const DEFAULT_RANGE = 500 // mempool scan window per branch (covers sparse wallets)
+const GAP_LIMIT = 20 // stop scanning after this many unused addresses past the last used one
+const MAX_RANGE = 500 // hard cap per branch (defensive; gap stop normally hits first)
+const SCAN_CONCURRENCY = 5 // public APIs rate-limit; keep modest
+const SCAN_BATCH_DELAY_MS = 200 // pause between batches
 
 // ── Address-balance providers (tried in order) ──────────────────
 // mempool.space is the primary; StartOS containers often can't reach it
 // (AAAA-only DNS + no IPv6 route), so fall back to other public APIs that
 // expose the same per-address data. Each provider has a fetch + parser.
+// fetchWithRetry handles transient 429/5xx with backoff so a provider that
+// rate-limits us doesn't immediately look "dead".
+async function fetchWithRetry(url, { attempts = 3, baseDelay = 400, provider = '' } = {}) {
+  let lastErr
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url)
+      if (res.status === 429 || res.status >= 500) {
+        lastErr = new Error(`${provider} ${res.status} for ${url}`)
+        await new Promise((r) => setTimeout(r, baseDelay * (i + 1) * 2))
+        continue
+      }
+      return res
+    } catch (e) {
+      lastErr = e
+      await new Promise((r) => setTimeout(r, baseDelay * (i + 1)))
+    }
+  }
+  throw lastErr || new Error(`${provider} fetch failed`)
+}
+
 const PROVIDERS = [
   {
     name: 'mempool.space',
-    // Retries on 429 (rate limit) with backoff up to 3 attempts.
-    async query(address, attempt = 0) {
-      const url = `https://mempool.space/api/address/${address}`
-      try {
-        const res = await fetch(url)
-        if (res.status === 429 && attempt < 3) {
-          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
-          return this.query(address, attempt + 1)
-        }
-        if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
-        const data = await res.json()
-        const stats = data.chain_stats || {}
-        const mempool = data.mempool_stats || {}
-        const bal = (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
-                    (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
-        const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
-        return { balanceSats: bal, txCount }
-      } catch (e) {
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
-          return this.query(address, attempt + 1)
-        }
-        throw e
-      }
+    async query(address) {
+      const res = await fetchWithRetry(`https://mempool.space/api/address/${address}`, { provider: this.name })
+      if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
+      const data = await res.json()
+      const stats = data.chain_stats || {}
+      const mempool = data.mempool_stats || {}
+      const bal = (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
+                  (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
+      const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
+      return { balanceSats: bal, txCount }
     },
   },
   {
     name: 'blockstream.info',
     // Same chain_stats/mempool_stats shape as mempool.space.
     async query(address) {
-      const url = `https://blockstream.info/api/address/${address}`
-      const res = await fetch(url)
+      const res = await fetchWithRetry(`https://blockstream.info/api/address/${address}`, { provider: this.name })
       if (!res.ok) throw new Error(`blockstream ${res.status} for ${address}`)
       const data = await res.json()
       const stats = data.chain_stats || {}
@@ -397,8 +405,7 @@ const PROVIDERS = [
     name: 'blockcypher.com',
     // { balance, unconfirmed_balance } in satoshis.
     async query(address) {
-      const url = `https://api.blockcypher.com/v1/btc/main/addrs/${address}`
-      const res = await fetch(url)
+      const res = await fetchWithRetry(`https://api.blockcypher.com/v1/btc/main/addrs/${address}`, { provider: this.name })
       if (!res.ok) throw new Error(`blockcypher ${res.status} for ${address}`)
       const data = await res.json()
       const bal = data.final_balance ?? data.balance ?? 0
@@ -410,8 +417,7 @@ const PROVIDERS = [
     name: 'blockchain.info',
     // Plain integer = confirmed balance in satoshis (no mempool/unconfirmed).
     async query(address) {
-      const url = `https://blockchain.info/q/addressbalance/${address}`
-      const res = await fetch(url)
+      const res = await fetchWithRetry(`https://blockchain.info/q/addressbalance/${address}`, { provider: this.name })
       if (!res.ok) throw new Error(`blockchain.info ${res.status} for ${address}`)
       const txt = (await res.text()).trim()
       const bal = parseInt(txt, 10)
@@ -470,9 +476,11 @@ function withTimeout(promise, ms) {
 }
 
 /** Scan a wallet's balance from public address APIs (mempool.space with
- *  blockstream/blockcypher/blockchain.info fallback). Returns
- *  { balanceSats, addresses, lastUsedIndex, provider } or null on total
- *  failure (all providers unreachable). */
+ *  blockstream/blockcypher/blockchain.info fallback). Scans per branch
+ *  with a gap limit: stops GAP_LIMIT addresses after the last used one so
+ *  we never hammer 500 addresses/branch against rate-limited public APIs.
+ *  Returns { balanceSats, addresses, lastUsedIndex, provider } or null on
+ *  total failure (all providers unreachable). */
 async function balanceFromMempool(parsed) {
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
   let total = 0
@@ -480,17 +488,22 @@ async function balanceFromMempool(parsed) {
   let lastUsedIndex = -1
   let queries = 0
   let nulls = 0
-  let usedProviders = new Set()
+  const usedProviders = new Set()
 
   for (const branch of branches) {
     const branchParsed = { ...parsed, trailing: `/${branch}` }
-    // Modest concurrency (10) — public APIs rate-limit bursts.
-    const batchSize = 10
-    for (let i = 0; i < DEFAULT_RANGE; i += batchSize) {
+    let consecutiveEmpty = 0
+    let branchMaxUsed = -1
+    let i = 0
+
+    while (i < MAX_RANGE) {
       const batchAddrs = []
-      for (let k = 0; k < batchSize && i + k < DEFAULT_RANGE; k++) {
-        batchAddrs.push(deriveAddress(branchParsed, i + k))
+      const batchIndices = []
+      for (let k = 0; k < SCAN_CONCURRENCY && i < MAX_RANGE; k++, i++) {
+        batchIndices.push(i)
+        batchAddrs.push(deriveAddress(branchParsed, i))
       }
+
       const infos = await Promise.all(
         batchAddrs.map(async (a) => {
           const info = await queryAddressWithFallback(a)
@@ -500,21 +513,36 @@ async function balanceFromMempool(parsed) {
           return info
         }),
       )
+
       for (let k = 0; k < infos.length; k++) {
+        const idx = batchIndices[k]
         total += infos[k].balanceSats
-        if (infos[k].txCount > 0) lastUsedIndex = Math.max(lastUsedIndex, i + k)
+        if (infos[k].txCount > 0) {
+          lastUsedIndex = Math.max(lastUsedIndex, idx)
+          branchMaxUsed = idx
+          consecutiveEmpty = 0
+        } else {
+          consecutiveEmpty++
+        }
       }
       allAddresses.push(...batchAddrs)
 
       // Fail fast: if an entire batch failed across ALL providers, the
       // container has no reachable public API — abort, caller falls back.
-      if (nulls >= batchSize && queries >= batchSize) {
+      if (queries > 0 && nulls === queries) {
         console.error('All address providers unreachable — aborting scan, falling back')
         return null
       }
 
-      // Small delay between batches to respect rate limits
-      await new Promise((r) => setTimeout(r, 150))
+      // Gap stop: after GAP_LIMIT consecutive empty addresses (either past
+      // the last used one, or from the start of an empty branch), we've hit
+      // the end of the wallet — stop rather than scanning all 500.
+      if (consecutiveEmpty >= GAP_LIMIT) {
+        break
+      }
+
+      // Respect rate limits
+      await new Promise((r) => setTimeout(r, SCAN_BATCH_DELAY_MS))
     }
   }
 
