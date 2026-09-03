@@ -607,6 +607,26 @@ async function updateHistoricalPrices() {
 // ── Watch-Only Wallet Balances ─────────────────────────────────
 let watchBalancesCache = {};
 
+/** True if a member has a watch-only wallet configured (regardless of
+ *  whether its balance has been fetched yet). */
+function hasWatchWallet(memberName) {
+    const wallets = dashboardConfig.watchOnlyWallets;
+    return !!(wallets && wallets.some(w => w.memberName === memberName && w.descriptor));
+}
+
+/** Watch state for a member:
+ *  - 'none'      — no watch-only wallet configured; use manual amount
+ *  - 'pending'   — watch wallet configured, balance not resolved yet (fetching)
+ *  - 'error'     — watch wallet configured, last fetch failed
+ *  - 'resolved'  — watch wallet configured, balance available */
+function watchStateFor(memberName) {
+    if (!hasWatchWallet(memberName)) return 'none';
+    const w = watchBalancesCache[memberName];
+    if (w && typeof w.balanceSats === 'number' && !isNaN(w.balanceSats)) return 'resolved';
+    if (w && w.error) return 'error';
+    return 'pending';
+}
+
 /** Effective BTC balance for a member: watch-only wallet balance (if a
  *  watch balance is available for this member) overrides the manual
  *  btcAmount entry. Falls back to the manual amount otherwise. */
@@ -619,13 +639,36 @@ function effectiveBtcFor(member) {
 }
 
 /** Re-render the BTC amount, USD value and P&L for every member using the
- *  effective balance (watch-only when present, manual otherwise). */
+ *  effective balance (watch-only when present, manual otherwise). When a
+ *  watch-only wallet is configured but the balance has not resolved yet
+ *  (public API scan still in progress), show "Fetching..." instead of the
+ *  stale manual amount, with a hover tooltip explaining what is going on. */
 function renderMemberBalances(currentPrice) {
     const members = dashboardConfig.familyMembers;
     members.forEach((member, index) => {
-        const btc = effectiveBtcFor(member);
+        const state = watchStateFor(member.name);
         const btcEl = document.getElementById(`member-${index}-btc`);
-        if (btcEl) btcEl.innerText = btc.toFixed(8) + " BTC";
+
+        if (state === 'pending' || state === 'error') {
+            // Watch wallet configured but no balance yet — don't show the
+            // stale manual figure. "Fetching..." with an explanatory tooltip.
+            if (btcEl) {
+                btcEl.innerText = 'Fetching...';
+                btcEl.title = 'Fetching watch-only wallet balance. Public API scans are rate-limited and the first one can take a while — possibly hours. This updates automatically when ready.';
+            }
+            // USD / P&L are meaningless while the balance is unknown.
+            const usdEl = document.getElementById(`member-${index}-usd`);
+            if (usdEl) usdEl.innerText = '—';
+            const plEl = document.getElementById(`member-${index}-pl`);
+            if (plEl) plEl.innerText = '';
+            return;
+        }
+
+        const btc = effectiveBtcFor(member);
+        if (btcEl) {
+            btcEl.innerText = btc.toFixed(8) + " BTC";
+            btcEl.title = '';
+        }
 
         if (typeof currentPrice === 'number') {
             const usd = btc * currentPrice;
