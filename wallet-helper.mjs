@@ -426,6 +426,7 @@ const PROVIDERS = [
  *  order with a per-attempt timeout so a dead one is skipped fast. */
 async function queryAddressWithFallback(address) {
   for (const p of PROVIDERS) {
+    if (p.dead) continue // probed unreachable at startup — skip fast
     try {
       const info = await withTimeout(p.query(address), 8000)
       return { ...info, provider: p.name }
@@ -435,6 +436,26 @@ async function queryAddressWithFallback(address) {
   }
   console.error(`All address providers failed for ${address}`)
   return null
+}
+
+/** Probe a provider at startup: does one cheap call succeed? Marks it
+ *  reachable/dead so the scan skips unreachable providers immediately
+ *  (mempool.space can hang ~10s per connect before timing out, which
+ *  otherwise stalls every address in the scan). */
+async function probeProvider(p) {
+  try {
+    await withTimeout(p.query('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), 5000)
+    p.dead = false
+    console.log(`provider ${p.name}: reachable`)
+  } catch (e) {
+    p.dead = true
+    console.log(`provider ${p.name}: unreachable, skipping`)
+  }
+}
+
+/** Probe all providers once at startup. */
+async function probeAllProviders() {
+  await Promise.all(PROVIDERS.map((p) => probeProvider(p)))
 }
 
 /** Race a promise against a timeout. */
@@ -657,6 +678,11 @@ async function handle(req, res) {
   }
 }
 
-http.createServer(handle).listen(PORT, () => {
-  console.log(`wallet-helper listening on :${PORT} (bitcoind: ${BITCOIND_RPC || 'none -> mempool'})`)
+// Probe public address providers before serving so unreachable ones
+// (e.g. mempool.space from containers with no IPv6 route) are skipped
+// quickly instead of stalling every balance query with connect timeouts.
+probeAllProviders().then(() => {
+  http.createServer(handle).listen(PORT, () => {
+    console.log(`wallet-helper listening on :${PORT} (bitcoind: ${BITCOIND_RPC || 'none -> mempool'})`)
+  })
 })
