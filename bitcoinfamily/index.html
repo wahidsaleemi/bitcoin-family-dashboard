@@ -564,7 +564,7 @@ function updatePrice() {
         document.getElementById('24hr-change').innerHTML =
             `<font color="${hourChangeColor}">${hourChangeSign}${hourChangePercentage}% <span class="arrow">${arrowDirection}</span></font>`;
 
-        const avgCost = members[0]?.avgCost ?? 0;
+        const avgCost = dashboardConfig.familyMembers[0]?.avgCost ?? 0;
         document.getElementById('avg-cost').innerText =
             "$" + avgCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 

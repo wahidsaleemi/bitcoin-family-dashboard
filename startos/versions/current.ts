@@ -1,10 +1,10 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const current = VersionInfo.of({
-  version: '0.2.2:0',
+  version: '0.2.3:0',
   releaseNotes: {
     en_US:
-      'UI fix: when a watch-only wallet is configured for a member but its balance has not been fetched yet (public API scan still in progress), the member card shows "Fetching..." instead of the stale manually-entered balance, with a hover tooltip explaining that the first scan can take a while. USD value and P&L are hidden until the real balance arrives.',
+      'UI fix: resolve ReferenceError on price update (members not defined). When a watch-only wallet is configured for a member but its balance has not been fetched yet (public API scan still in progress), the member card shows "Fetching..." instead of the stale manually-entered balance, with a hover tooltip explaining that the first scan can take a while. USD value and P&L are hidden until the real balance arrives.',
     es_ES:
       'Corrección de interfaz: cuando se configura un monedero de solo observación para un miembro pero su saldo aún no se ha obtenido (el escaneo de API pública sigue en curso), la tarjeta del miembro muestra "Obteniendo..." en lugar del saldo manual obsoleto, con información al pasar el cursor explicando que el primer escaneo puede tardar. El valor USD y P&L se ocultan hasta que llegue el saldo real.',
     de_DE:
