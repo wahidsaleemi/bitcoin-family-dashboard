@@ -451,13 +451,13 @@ async function queryAddressWithFallback(address) {
  *  NOT mark a provider dead — it's reachable, just throttled right now. */
 async function probeProvider(p) {
   try {
-    const res = await withTimeout(p.query('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), 5000)
+    const res = await withTimeout(p.query('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), 10000)
     p.dead = false
     console.log(`provider ${p.name}: reachable`)
   } catch (e) {
-    // Distinguish "throttled" (429/5xx — reachable, retry later) from
-    // "unreachable" (network error — skip for now).
-    const throttled = /429|5\d\d/.test(e.message || '')
+    // Distinguish "throttled" (429/5xx or slow response — reachable, retry
+    // later) from "unreachable" (connection refused/DNS — skip for now).
+    const throttled = /429|5\d\d|timeout/i.test(e.message || '')
     if (throttled) {
       p.dead = false
       console.log(`provider ${p.name}: throttled (${e.message}), will retry`)
