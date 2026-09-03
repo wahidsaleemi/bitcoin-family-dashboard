@@ -126,33 +126,42 @@ export const main = sdk.setupMain(async ({ effects }) => {
     .addHealthCheck('watch-scan', {
       ready: {
         display: i18n('Watch-only wallet scan'),
-        fn: () =>
-          sdk.healthCheck.runHealthScript(
-            [
-              'sh',
-              '-c',
-              'for i in 1 2 3 4 5 6 7 8; do out=$(curl -s --max-time 2 http://127.0.0.1:8090/api/scan-status 2>/dev/null) && [ -n "$out" ] && echo "$out" && exit 0; sleep 1; done; exit 1',
-            ],
-            subcontainer,
-            {
-              timeout: 15000,
-              errorMessage: i18n('Watch-only wallet scanner is not responding'),
-              message: (out) => {
-                try {
-                  const status = JSON.parse(out)
-                  if (status.scanning) {
-                    if (status.note === 'waiting for providers') {
-                      return `Still scanning watch-only wallet — waiting for balance data...`
-                    }
-                    return `Still scanning watch-only wallet for ${status.member}...`
-                  }
-                  return 'Watch-only wallet scan idle'
-                } catch {
-                  return 'Watch-only wallet scan idle'
+        fn: async () => {
+          // Query the wallet-helper's scan status from inside the web
+          // subcontainer (the helper listens on 127.0.0.1:8090 there).
+          // Use subcontainer.exec (not runHealthScript) so we can map the
+          // status to the proper HealthCheckResult icon:
+          //   - scanning -> 'loading'   (animated circle, like a syncing node)
+          //   - idle     -> 'success'   (green check)
+          //   - down     -> 'failure'   (red triangle)
+          const res = await subcontainer.exec(
+            ['sh', '-c', 'curl -s --max-time 3 http://127.0.0.1:8090/api/scan-status'],
+            {},
+            10000,
+          )
+          const out = String(res.stdout || '').trim()
+          if (!out) {
+            return { result: 'failure', message: i18n('Watch-only wallet scanner is not responding') }
+          }
+          try {
+            const status = JSON.parse(out)
+            if (status.scanning) {
+              if (status.note === 'waiting for providers') {
+                return {
+                  result: 'loading',
+                  message: i18n('Still scanning watch-only wallet — waiting for balance data...'),
                 }
-              },
-            },
-          ),
+              }
+              return {
+                result: 'loading',
+                message: i18n('Still scanning watch-only wallet for ') + (status.member || '') + '...',
+              }
+            }
+            return { result: 'success', message: i18n('Watch-only wallet scan idle') }
+          } catch {
+            return { result: 'failure', message: i18n('Watch-only wallet scanner returned an invalid response') }
+          }
+        },
       },
       requires: ['web'],
     })
