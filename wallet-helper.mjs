@@ -7,7 +7,10 @@
  * and queries balances from:
  *   - local Bitcoin Core RPC (BITCOIND_RPC env, set by main.ts when the
  *     StartOS bitcoind package is installed), OR
- *   - the public mempool.space API as fallback.
+ *   - public address APIs with multi-provider fallback: mempool.space,
+ *     blockstream.info, blockcypher.com, blockchain.info (mempool.space is
+ *     often unreachable from StartOS containers — AAAA-only DNS + no IPv6
+ *     route — so the others keep balances working).
  *
  * Run on an internal port; nginx proxies /api/wallet-balance to it.
  */
@@ -341,20 +344,46 @@ async function balanceFromBitcoind(parsed, memberName) {
 const GAP_LIMIT = 20 // legacy gap limit, unused with explicit-window scan
 const DEFAULT_RANGE = 500 // mempool scan window per branch (covers sparse wallets)
 
-/** Query an address's activity (tx count) + balance from mempool.space.
- *  Retries on 429 (rate limit) with backoff up to 3 attempts. */
-async function addrInfoFromMempool(address) {
-  const url = `${MEMPOOL_API}/address/${address}`
-  let lastErr
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(url)
-      if (res.status === 429) {
-        // Rate limited — wait and retry (mempool.space is strict about bursts)
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
-        continue
+// ── Address-balance providers (tried in order) ──────────────────
+// mempool.space is the primary; StartOS containers often can't reach it
+// (AAAA-only DNS + no IPv6 route), so fall back to other public APIs that
+// expose the same per-address data. Each provider has a fetch + parser.
+const PROVIDERS = [
+  {
+    name: 'mempool.space',
+    // Retries on 429 (rate limit) with backoff up to 3 attempts.
+    async query(address, attempt = 0) {
+      const url = `https://mempool.space/api/address/${address}`
+      try {
+        const res = await fetch(url)
+        if (res.status === 429 && attempt < 3) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+          return this.query(address, attempt + 1)
+        }
+        if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
+        const data = await res.json()
+        const stats = data.chain_stats || {}
+        const mempool = data.mempool_stats || {}
+        const bal = (stats.funded_txo_sum || 0) - (stats.spent_txo_sum || 0) +
+                    (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
+        const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
+        return { balanceSats: bal, txCount }
+      } catch (e) {
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+          return this.query(address, attempt + 1)
+        }
+        throw e
       }
-      if (!res.ok) throw new Error(`mempool ${res.status} for ${address}`)
+    },
+  },
+  {
+    name: 'blockstream.info',
+    // Same chain_stats/mempool_stats shape as mempool.space.
+    async query(address) {
+      const url = `https://blockstream.info/api/address/${address}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`blockstream ${res.status} for ${address}`)
       const data = await res.json()
       const stats = data.chain_stats || {}
       const mempool = data.mempool_stats || {}
@@ -362,28 +391,79 @@ async function addrInfoFromMempool(address) {
                   (mempool.funded_txo_sum || 0) - (mempool.spent_txo_sum || 0)
       const txCount = (stats.tx_count || 0) + (mempool.tx_count || 0)
       return { balanceSats: bal, txCount }
+    },
+  },
+  {
+    name: 'blockcypher.com',
+    // { balance, unconfirmed_balance } in satoshis.
+    async query(address) {
+      const url = `https://api.blockcypher.com/v1/btc/main/addrs/${address}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`blockcypher ${res.status} for ${address}`)
+      const data = await res.json()
+      const bal = data.final_balance ?? data.balance ?? 0
+      const unconf = data.unconfirmed_balance ?? 0
+      return { balanceSats: bal + unconf, txCount: data.n_tx || 0 }
+    },
+  },
+  {
+    name: 'blockchain.info',
+    // Plain integer = confirmed balance in satoshis (no mempool/unconfirmed).
+    async query(address) {
+      const url = `https://blockchain.info/q/addressbalance/${address}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`blockchain.info ${res.status} for ${address}`)
+      const txt = (await res.text()).trim()
+      const bal = parseInt(txt, 10)
+      if (isNaN(bal)) throw new Error(`blockchain.info bad response: ${txt.slice(0, 40)}`)
+      return { balanceSats: bal, txCount: bal > 0 ? 1 : 0 }
+    },
+  },
+]
+
+/** Query one address across all providers. Returns { balanceSats, txCount,
+ *  provider } or null if every provider failed. Providers are tried in
+ *  order with a per-attempt timeout so a dead one is skipped fast. */
+async function queryAddressWithFallback(address) {
+  for (const p of PROVIDERS) {
+    try {
+      const info = await withTimeout(p.query(address), 8000)
+      return { ...info, provider: p.name }
     } catch (e) {
-      lastErr = e
-      // Transient network hiccup — retry
-      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+      // Try next provider
     }
   }
-  throw lastErr || new Error(`mempool fetch failed for ${address}`)
+  console.error(`All address providers failed for ${address}`)
+  return null
 }
 
-/** Scan a wallet's balance from mempool.space. Returns { balanceSats, addresses, lastUsedIndex } or null on total failure. */
+/** Race a promise against a timeout. */
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms)
+    promise.then(
+      (v) => { clearTimeout(t); resolve(v) },
+      (e) => { clearTimeout(t); reject(e) },
+    )
+  })
+}
+
+/** Scan a wallet's balance from public address APIs (mempool.space with
+ *  blockstream/blockcypher/blockchain.info fallback). Returns
+ *  { balanceSats, addresses, lastUsedIndex, provider } or null on total
+ *  failure (all providers unreachable). */
 async function balanceFromMempool(parsed) {
   const branches = parsed.paths && parsed.paths.length ? parsed.paths : ['0']
   let total = 0
   const allAddresses = []
   let lastUsedIndex = -1
-  let networkFailures = 0
   let queries = 0
+  let nulls = 0
+  let usedProviders = new Set()
 
   for (const branch of branches) {
     const branchParsed = { ...parsed, trailing: `/${branch}` }
-    // Modest concurrency (10) — mempool.space rate-limits bursts; firing 25
-    // at once caused 429s which were miscounted as unreachable.
+    // Modest concurrency (10) — public APIs rate-limit bursts.
     const batchSize = 10
     for (let i = 0; i < DEFAULT_RANGE; i += batchSize) {
       const batchAddrs = []
@@ -391,41 +471,44 @@ async function balanceFromMempool(parsed) {
         batchAddrs.push(deriveAddress(branchParsed, i + k))
       }
       const infos = await Promise.all(
-        batchAddrs.map((a) =>
-          addrInfoFromMempool(a).then(
-            (info) => info,
-            () => { networkFailures++; return { balanceSats: 0, txCount: 0 } },
-          ),
-        ),
+        batchAddrs.map(async (a) => {
+          const info = await queryAddressWithFallback(a)
+          queries++
+          if (!info) { nulls++; return { balanceSats: 0, txCount: 0, provider: null } }
+          if (info.provider) usedProviders.add(info.provider)
+          return info
+        }),
       )
       for (let k = 0; k < infos.length; k++) {
-        queries++
         total += infos[k].balanceSats
         if (infos[k].txCount > 0) lastUsedIndex = Math.max(lastUsedIndex, i + k)
       }
       allAddresses.push(...batchAddrs)
 
-      // Fail fast: if an entire batch was a network failure (not 429 — those
-      // are retried inside addrInfoFromMempool), mempool.space is unreachable.
-      if (networkFailures >= batchSize) {
-        console.error('mempool.space unreachable — aborting scan, falling back')
+      // Fail fast: if an entire batch failed across ALL providers, the
+      // container has no reachable public API — abort, caller falls back.
+      if (nulls >= batchSize && queries >= batchSize) {
+        console.error('All address providers unreachable — aborting scan, falling back')
         return null
       }
 
-      // Small delay between batches to respect mempool.space rate limits
+      // Small delay between batches to respect rate limits
       await new Promise((r) => setTimeout(r, 150))
     }
   }
 
-  // If mempool.space is completely unreachable (e.g. no internet from the
-  // container), every query fails — return null so the caller falls back
-  // to bitcoind instead of reporting a bogus 0 balance.
-  if (queries > 0 && networkFailures === queries) {
-    console.error('mempool.space unreachable — all address queries failed')
+  // If every query failed across all providers, report null (not a bogus 0).
+  if (queries > 0 && nulls === queries) {
+    console.error('All address providers unreachable — all queries failed')
     return null
   }
 
-  return { balanceSats: total, addresses: allAddresses, lastUsedIndex }
+  return {
+    balanceSats: total,
+    addresses: allAddresses,
+    lastUsedIndex,
+    providers: [...usedProviders],
+  }
 }
 
 let scanStatus = { scanning: false, member: '', lastScanAt: null }
@@ -484,6 +567,7 @@ async function handle(req, res) {
         let source = null
         let addresses = []
         let lastUsedIndex = -1
+        let mempoolProviders = []
 
         // Respect the per-wallet source setting, but fall back to the OTHER
         // source if the chosen one fails — the user should always get a real
@@ -506,6 +590,7 @@ async function handle(req, res) {
               addresses = r.addresses
               lastUsedIndex = r.lastUsedIndex
               source = 'mempool'
+              mempoolProviders = r.providers || []
               break
             }
           }
@@ -535,6 +620,7 @@ async function handle(req, res) {
           addresses,
           lastUsedIndex,
           source,
+          mempoolProviders,
         }
       } catch (e) {
         return {
