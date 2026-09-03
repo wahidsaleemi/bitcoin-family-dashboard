@@ -447,15 +447,24 @@ async function queryAddressWithFallback(address) {
 /** Probe a provider at startup: does one cheap call succeed? Marks it
  *  reachable/dead so the scan skips unreachable providers immediately
  *  (mempool.space can hang ~10s per connect before timing out, which
- *  otherwise stalls every address in the scan). */
+ *  otherwise stalls every address in the scan). A 429 (rate limit) does
+ *  NOT mark a provider dead — it's reachable, just throttled right now. */
 async function probeProvider(p) {
   try {
-    await withTimeout(p.query('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), 5000)
+    const res = await withTimeout(p.query('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), 5000)
     p.dead = false
     console.log(`provider ${p.name}: reachable`)
   } catch (e) {
-    p.dead = true
-    console.log(`provider ${p.name}: unreachable, skipping`)
+    // Distinguish "throttled" (429/5xx — reachable, retry later) from
+    // "unreachable" (network error — skip for now).
+    const throttled = /429|5\d\d/.test(e.message || '')
+    if (throttled) {
+      p.dead = false
+      console.log(`provider ${p.name}: throttled (${e.message}), will retry`)
+    } else {
+      p.dead = true
+      console.log(`provider ${p.name}: unreachable, skipping`)
+    }
   }
 }
 
@@ -463,6 +472,13 @@ async function probeProvider(p) {
 async function probeAllProviders() {
   await Promise.all(PROVIDERS.map((p) => probeProvider(p)))
 }
+
+// Re-probe providers periodically so ones that were rate-limited or down at
+// boot recover without a container restart.
+let PROBE_LOCK = Promise.resolve()
+setInterval(() => {
+  PROBE_LOCK = PROBE_LOCK.then(() => probeAllProviders()).catch(() => {})
+}, 10 * 60 * 1000).unref()
 
 /** Race a promise against a timeout. */
 function withTimeout(promise, ms) {
