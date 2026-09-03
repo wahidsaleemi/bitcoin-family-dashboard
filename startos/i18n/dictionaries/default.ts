@@ -61,9 +61,10 @@ const dict = {
   'Watch-only wallet scanner is not responding': 63,
   'Balance Source': 64,
   'Where to fetch the balance from: your local Bitcoin Core node (instant, private) or the public mempool.space API': 65,
-  'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balances are fetched from the selected source.': 66,
-  'Bitcoin Core (local node)': 67,
-  'mempool.space (public)': 68,
+  'Note: Bitcoin Core is instant and private. Public APIs (mempool.space, blockstream.info, etc.) are rate-limited — the initial wallet balance can take a while, possibly several hours. The dashboard shows "still scanning" until it completes.': 66,
+  'Paste the Bitcoin output descriptor from your wallet (e.g. wpkh(xpub...)). Balances are fetched from the selected source.': 67,
+  'Bitcoin Core (local node)': 68,
+  'Public API (mempool.space, blockstream.info)': 69,
 } as const
 
 /**

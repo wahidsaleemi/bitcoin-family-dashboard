@@ -23,10 +23,13 @@ function memberWalletSpec(memberName: string, source: 'bitcoind' | 'mempool', de
       description: i18n(
         'Where to fetch the balance from: your local Bitcoin Core node (instant, private) or the public mempool.space API',
       ),
+      footnote: i18n(
+        'Note: Bitcoin Core is instant and private. Public APIs (mempool.space, blockstream.info, etc.) are rate-limited — the initial wallet balance can take a while, possibly several hours. The dashboard shows "still scanning" until it completes.',
+      ),
       default: source,
       values: {
         bitcoind: 'Bitcoin Core (local node)',
-        mempool: 'mempool.space (public)',
+        mempool: 'Public API (mempool.space, blockstream.info)',
       },
     }),
     descriptor: Value.textarea({
