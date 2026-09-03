@@ -1,135 +1,35 @@
-<p align="center">
-  <img src="icon.svg" alt="Bitcoin Family Dashboard Logo" width="21%">
-</p>
+# Bitcoin Family Dashboard
 
-# Bitcoin Family Dashboard on StartOS
+![Bitcoin Family Dashboard Preview](./screenshot.png)
 
-> Everything not listed in this document should behave the same as upstream Bitcoin Family Dashboard.
-> If a feature, setting, or behavior is not mentioned here, the upstream
-> documentation is accurate and fully applicable — see the Documentation section of
-> `instructions.md` for links.
+**Bitcoin Family Dashboard** is an open-source, fully client-side Bitcoin dashboard for tracking family BTC holdings, live prices, 24-hour changes, and historical performance. Inspired by [btcframe/bitcoinfamily](https://github.com/btcframe/bitcoinfamily), it has been substantially rewritten for self-hosting — dark mode, watch-only wallets, rotating charts, and per-member configuration.
 
-## Overview
+## Features
 
-Bitcoin Family Dashboard is a fully client-side Bitcoin dashboard for tracking family BTC holdings, live prices, 24-hour changes, and historical performance. Originally built as a simple HTML dashboard, this package wraps it for StartOS with rich configuration via Actions & Config.
+- **Real-time Bitcoin price** from common sources (CoinGecko, Binance, Coinbase, Bitstamp) or a custom API
+- **Per-family-member BTC holdings** with USD value and P&L
+- **Manually enter bitcoin quantity** or point a member at a **watch-only wallet** (output descriptor)
+- **Three rotating charts** — 30-day, 1-year, and 10-year price history
+- **Historical price comparisons** — 1 week, 1 month, 1 year
+- **Auto-generated profile avatars** (pravatar), updatable on the dashboard
+- **Landscape background rotation** via Pexels (optional)
+- **Dark mode** and **fullscreen-ready**
 
-![Bitcoin Family Dashboard screenshot](screenshot.png)
+> **Please note:** This dashboard is intended for internal and personal use on localhost. Do not publish your private information on the internet.
 
-### Key features
+## Install as a StartOS service
 
-- **Live price** from your choice of source: **Coinbase Exchange**, **Binance**, **Bitstamp**, or a **Custom API**
-- **Family members** — add, remove, and update members with BTC holdings and average cost basis
-- **Custom avatars** — hover a member's avatar to upload a picture; auto center-crop to 150×150, resize, and JPEG-encode entirely in the browser
-- **Three rotating charts** — 30-day, 1-year, and 10-year price history, rotating every 60 seconds with a log scale on the long view
-- **Dark mode** — a pill toggle in the top-right (persisted in the browser), with a near-black chart theme
-- **Pexels backgrounds** — optional rotating landscape photos (free API key required)
-- **Watch-only wallets** — attach a Bitcoin output descriptor to a member; balances are pulled from your StartOS Bitcoin Core node when present, otherwise from the public mempool.space API
+This repository is the dashboard application. A StartOS package wrapper lives in the
+[bitcoin-family-dashboard-startos](https://github.com/wahidsaleemi/bitcoin-family-dashboard-startos)
+repository — install it from there (or from the Start9 Community Registry) to run the dashboard on StartOS with Actions & Config, Bitcoin Core watch-only balances, and automatic backups.
 
-## Table of Contents
+## Run it locally
 
-- [Overview](#overview)
-- [Image and Container Runtime](#image-and-container-runtime)
-- [Volume and Data Layout](#volume-and-data-layout)
-- [File Models](#file-models)
-- [Dependencies](#dependencies)
-- [Network Access and Interfaces](#network-access-and-interfaces)
-- [Installation and First-Run Flow](#installation-and-first-run-flow)
-- [Actions](#actions)
-- [Tasks](#tasks)
-- [Health Checks](#health-checks)
-- [Backups and Restore](#backups-and-restore)
-- [Limitations and Differences](#limitations-and-differences)
+Download the whole package and open `index.html` in a browser. Edit the family members and their Bitcoin holdings directly in the file or via the in-page configuration.
 
-## Image and Container Runtime
+## Contributing
 
-The service runs `nginx:alpine` serving the static dashboard. The image entrypoint seeds a default `config.json` on first boot (Satoshi, 0.125 BTC @ $40k cost basis), then nginx serves the site and proxies outbound price/background API calls so browsers never hit CORS or expose API keys.
-
-## Volume and Data Layout
-
-| Volume | Mount | Purpose |
-|--------|-------|---------|
-| `main` | `/data` | Persistent `config.json` — dashboard configuration |
-
-## File Models
-
-- **`config.json`** — the single dashboard configuration file, stored on the `main` volume at `/data/config.json`. Seeded on first install with a default Satoshi member and Coinbase as the price source. Edited exclusively through the StartOS **Actions** menu; hand-edits survive restarts but may be overwritten by actions.
-
-## Dependencies
-
-None.
-
-## Network Access and Interfaces
-
-- **Web UI** — the dashboard, exposed as a `ui` interface on port 80.
-- Outbound HTTP from the container: price APIs (Coinbase Exchange, Binance, Bitstamp, custom), Pexels API for backgrounds, and chart data providers.
-
-## Installation and First-Run Flow
-
-Install via **Sideload Service**. On first start the container seeds `config.json` with a default Satoshi member, then serves the dashboard. Configure members, price source, background rotation, and dark mode from the Actions menu.
-
-## Actions
-
-| Action | Purpose |
-|--------|---------|
-| **Add Family Member** | Add a member with name, BTC holdings, and average cost basis |
-| **Remove Family Member** | Remove an existing member |
-| **Update Family Member** | Change BTC holdings or cost basis |
-| **Configure Price Source** | Pick Coinbase Exchange (default), Binance, Bitstamp, or a Custom API |
-| **Configure Background** | Enable/disable rotating Pexels landscape backgrounds and set the API key |
-| **Watch-Only Wallet** | Attach a Bitcoin output descriptor to a member; balances from Bitcoin Core or mempool.space |
-
-## Tasks
-
-None.
-
-## Health Checks
-
-- **Web Interface** — verifies nginx is listening on port 80.
-
-## Backups and Restore
-
-The `main` volume is snapshotted; `config.json` (members, price source, Pexels settings) is included in backups and restored on restore.
-
-## Limitations and Differences
-
-- Price source 24-hour change: Coinbase Exchange and Binance do not provide a 24h-change figure in their simple ticker responses, so the dashboard derives it from the spot price 24 hours ago. Bitstamp provides `percent_change_24` directly.
-- Custom avatars are stored in browser `localStorage` (per-device), not in `config.json`, so they are not included in StartOS backups.
-
----
-
-## Quick Reference for AI Consumers
-
-```yaml
-package_id: 'bitcoin-family-dashboard'
-image:
-  - nginx:alpine (custom entrypoint + templates)
-architectures:
-  - x86_64
-  - aarch64
-subcontainers:
-  - web (nginx, port 80)
-volumes:
-  - main (config.json)
-file_models:
-  - config.json
-startos_managed_env_vars:
-  - PRICE_UPSTREAM
-  - PRICE_HOST
-dependencies: []
-interfaces:
-  - ui (port 80)
-actions:
-  - add-member
-  - remove-member
-  - update-member
-  - configure-price-source
-  - configure-background
-tasks: []
-health_checks:
-  - web (port 80)
-```
-
----
+Fork the repository, make changes, and submit pull requests. Contributions that improve the dashboard and enhance its features for family use are welcome.
 
 ## License
 
