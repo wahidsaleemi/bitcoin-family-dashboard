@@ -105,6 +105,39 @@
             position: relative;
             z-index: 1;
         }
+        /* Pexels attribution (required by Pexels API guidelines):
+           photographer credit + link to Pexels, shown while a Pexels
+           background is displayed. Own dark backdrop keeps it legible
+           over any photo, in both themes. */
+        .pexels-credit {
+            position: fixed;
+            bottom: 10px;
+            right: 12px;
+            z-index: 2;
+            font-size: 11px;
+            letter-spacing: 0.02em;
+            color: rgba(255, 255, 255, 0.92);
+            background: rgba(0, 0, 0, 0.42);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 999px;
+            padding: 4px 12px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+        }
+        .pexels-credit.is-visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .pexels-credit a {
+            color: rgba(255, 255, 255, 0.92);
+            text-decoration: none;
+        }
+        .pexels-credit a:hover {
+            text-decoration: underline;
+        }
         /* Toggle switch — pill slider with sun/moon */
         .theme-toggle {
             position: fixed;
@@ -173,6 +206,9 @@
     <div class="dashboard-title">
         <h1 id="dashboard-heading">Bitcoin Family Dashboard</h1>
     </div>
+
+    <!-- Pexels attribution: populated when a Pexels background is applied -->
+    <div class="pexels-credit" id="pexelsCredit"></div>
 
     <div id="wrapper" class="bottom-space">
         <section id="main">
@@ -295,6 +331,37 @@ function updatePexelsOverlay() {
     const dark = document.body.classList.contains('dark');
     const pexels = !!(dashboardConfig.pexels && dashboardConfig.pexels.enabled);
     document.body.classList.toggle('dark-pexels', dark && pexels);
+}
+
+// Pexels attribution pill (API guidelines): "Photos provided by Pexels ·
+// Photo by <photographer>", both linking out — photographer to the photo
+// page. DOM-built with textContent (no innerHTML from API data). Hidden
+// until a photo is actually displayed.
+function updatePexelsCredit() {
+    const el = document.getElementById('pexelsCredit');
+    if (!el) return;
+    const attr = window.__pexelsAttribution;
+    if (!attr || !(attr.photographer || attr.photoUrl)) {
+        el.classList.remove('is-visible');
+        return;
+    }
+    while (el.firstChild) el.removeChild(el.firstChild);
+    const pexelsLink = document.createElement('a');
+    pexelsLink.href = 'https://www.pexels.com';
+    pexelsLink.target = '_blank';
+    pexelsLink.rel = 'noopener noreferrer';
+    pexelsLink.textContent = 'Photos provided by Pexels';
+    el.appendChild(pexelsLink);
+    if (attr.photographer) {
+        el.appendChild(document.createTextNode(' · Photo by '));
+        const photoLink = document.createElement('a');
+        photoLink.href = attr.photoUrl || 'https://www.pexels.com';
+        photoLink.target = '_blank';
+        photoLink.rel = 'noopener noreferrer';
+        photoLink.textContent = attr.photographer;
+        el.appendChild(photoLink);
+    }
+    el.classList.add('is-visible');
 }
 
 // Apply saved preference on load
@@ -752,6 +819,13 @@ async function fetchPexelsBackground() {
         const photo = photos[Math.floor(Math.random() * photos.length)];
         const url = photo.src && (photo.src.large2x || photo.src.original);
         if (!url) return;
+        // Remember attribution data (Pexels API guidelines: credit the
+        // photographer and link to Pexels whenever their content shows).
+        window.__pexelsAttribution = {
+            photographer: photo.photographer || '',
+            photographerUrl: photo.photographer_url || '',
+            photoUrl: photo.url || '',
+        };
         // Preload, then fade the body background
         const img = new Image();
         img.onload = () => {
@@ -760,6 +834,7 @@ async function fetchPexelsBackground() {
             document.body.style.backgroundPosition = 'center';
             document.body.style.backgroundAttachment = 'fixed';
             updatePexelsOverlay();
+            updatePexelsCredit();
         };
         img.src = url;
     } catch (e) {
