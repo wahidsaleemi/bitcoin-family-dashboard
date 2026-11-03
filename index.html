@@ -459,12 +459,14 @@ async function migrateLocalAvatars() {
     }
 }
 
-// Replacements whose upload previously failed are retried once per load; the
-// server mirror is only ever overwritten by an actual server response.
+// Persisted pending uploads may outlive the page that started them: a page
+// closed while an upload was in flight persists an entry with no error yet,
+// so every persisted picture is retried once per load, and only a mark
+// consistent with the newest selection is written on failure.
 async function retryPendingAvatars() {
     let changed = false;
     for (const [name, entry] of Object.entries(getPendingAvatars())) {
-        if (!entry || !entry.dataUri || !entry.error) continue;
+        if (!entry || !entry.dataUri) continue;
         try {
             const saved = await uploadAvatar(name, entry.dataUri);
             if (saved && saved.url) {
@@ -474,6 +476,11 @@ async function retryPendingAvatars() {
                 changed = true;
             }
         } catch (e) {
+            const current = getPendingAvatars()[name];
+            if (current && current.dataUri === entry.dataUri) {
+                setPendingAvatar(name, { ...entry, error: true });
+                changed = true;
+            }
             console.warn(`Still could not save the picture for ${name} — will retry on next load:`, e);
         }
     }
@@ -605,7 +612,12 @@ function processAvatarFile(file, memberName) {
                     console.error('Could not store the profile picture on the server:', e);
                     // Keep showing the new picture with the failure border; a
                     // later load retries it instead of silently stranding it.
-                    setPendingAvatar(memberName, { dataUri: dataUrl, error: true });
+                    // Guarded like the success handler: a stale failure must
+                    // not resurrect an older picture over a newer selection.
+                    const current = getPendingAvatars()[memberName];
+                    if (current && current.dataUri === dataUrl) {
+                        setPendingAvatar(memberName, { dataUri: dataUrl, error: true });
+                    }
                     buildMemberCards();
                 });
         };
