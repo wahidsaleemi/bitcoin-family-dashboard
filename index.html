@@ -406,6 +406,27 @@ function saveAvatarOverride(name, dataUri) {
     localStorage.setItem('avatarOverrides', JSON.stringify(overrides));
 }
 
+// Replacements that the server has not accepted yet, tracked separately from
+// the legacy migration cache: they stay visible across card rebuilds, keep
+// their failure state, and are retried on each load until the server accepts
+// them. A stale localStorage mirror can never shadow the server picture —
+// mirrors are only ever cleared (never re-shown over a server response).
+function getPendingAvatars() {
+    try {
+        return JSON.parse(localStorage.getItem('pendingAvatarReplacements') || '{}');
+    } catch (e) {
+        return {};
+    }
+}
+
+function setPendingAvatar(name, entry) {
+    const pending = getPendingAvatars();
+    if (entry) pending[name] = entry; else delete pending[name];
+    try {
+        localStorage.setItem('pendingAvatarReplacements', JSON.stringify(pending));
+    } catch (e) {}
+}
+
 async function loadServerAvatars() {
     try {
         const resp = await fetch('/api/avatars', { cache: 'no-store' });
@@ -425,11 +446,38 @@ async function migrateLocalAvatars() {
         if (!dataUri || serverAvatars[name]) continue;
         try {
             const saved = await uploadAvatar(name, dataUri);
-            if (saved && saved.url) serverAvatars[name] = saved;
+            if (saved && saved.url) {
+                serverAvatars[name] = saved;
+                saveAvatarOverride(name, null); // the server picture is authoritative now
+            }
         } catch (e) {
             console.warn(`Local picture for ${name} could not be saved to the server:`, e);
+            // Keep the picture visible (via the pending state) instead of
+            // leaving it browser-only forever; retried on the next load.
+            setPendingAvatar(name, { dataUri, error: true });
         }
     }
+}
+
+// Replacements whose upload previously failed are retried once per load; the
+// server mirror is only ever overwritten by an actual server response.
+async function retryPendingAvatars() {
+    let changed = false;
+    for (const [name, entry] of Object.entries(getPendingAvatars())) {
+        if (!entry || !entry.dataUri || !entry.error) continue;
+        try {
+            const saved = await uploadAvatar(name, entry.dataUri);
+            if (saved && saved.url) {
+                serverAvatars[name] = saved;
+                setPendingAvatar(name, null);
+                saveAvatarOverride(name, null); // the stale mirror must not shadow the server picture
+                changed = true;
+            }
+        } catch (e) {
+            console.warn(`Still could not save the picture for ${name} — will retry on next load:`, e);
+        }
+    }
+    if (changed) buildMemberCards();
 }
 
 async function uploadAvatar(memberName, dataUrl) {
@@ -444,6 +492,11 @@ async function uploadAvatar(memberName, dataUrl) {
 }
 
 function avatarSrcFor(member, index) {
+    // A replacement picked in this tab outranks the server picture until the
+    // server has accepted it — even when the upload failed (the border then
+    // reports why), so a failed replacement is never silently hidden.
+    const pending = getPendingAvatars()[member.name];
+    if (pending && pending.dataUri) return pending.dataUri;
     const remote = serverAvatars[member.name];
     if (remote && remote.url) return `${remote.url}?v=${remote.v}`;
     const overrides = getAvatarOverrides();
@@ -482,6 +535,12 @@ function buildMemberCards() {
             <font color="green"><h3 id="member-${index}-usd" class="usd-amount">$00,000.00</h3></font>
             <p id="member-${index}-pl" class="pl-section"></p>
         `;
+        const pendingAvatar = getPendingAvatars()[member.name];
+        if (pendingAvatar && pendingAvatar.error) {
+            const wrap = td.querySelector('.avatar-wrap');
+            wrap.classList.add('avatar-unsaved');
+            wrap.title = 'This picture is not stored on the server yet — this browser will retry.';
+        }
         row.appendChild(td);
     });
 
@@ -525,25 +584,29 @@ function processAvatarFile(file, memberName) {
             ctx.drawImage(img, sx, sy, side, side, 0, 0, 150, 150);
 
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            saveAvatarOverride(memberName, dataUrl);
+            // Track the replacement separately from any server picture: show
+            // the new picture immediately and keep showing it (rebuilt cards
+            // included) until the server accepts it or the border reports why.
+            setPendingAvatar(memberName, { dataUri: dataUrl, error: false });
             buildMemberCards();
             uploadAvatar(memberName, dataUrl)
                 .then((saved) => {
                     if (saved && saved.url) serverAvatars[memberName] = saved;
+                    // Only drop the pending state if this is still the latest
+                    // replacement — a newer one may already be in flight.
+                    const current = getPendingAvatars()[memberName];
+                    if (current && current.dataUri === dataUrl) {
+                        setPendingAvatar(memberName, null);
+                        saveAvatarOverride(memberName, null); // the stale local mirror loses to the server
+                    }
                     buildMemberCards();
                 })
                 .catch((e) => {
-                    // The picture still shows from the local mirror, but it will
-                    // not survive a reboot / another device. Say so at the point
-                    // of the upload rather than silently losing it later.
                     console.error('Could not store the profile picture on the server:', e);
-                    const wrap = document.querySelector(
-                        `.avatar-wrap[data-member="${CSS.escape(memberName)}"]`
-                    );
-                    if (wrap) {
-                        wrap.classList.add('avatar-unsaved');
-                        wrap.title = 'This picture is only stored in this browser — the dashboard could not save it.';
-                    }
+                    // Keep showing the new picture with the failure border; a
+                    // later load retries it instead of silently stranding it.
+                    setPendingAvatar(memberName, { dataUri: dataUrl, error: true });
+                    buildMemberCards();
                 });
         };
         img.src = e.target.result;
@@ -1020,6 +1083,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // browser still holds is pushed up once before the first render.
     await loadServerAvatars();
     await migrateLocalAvatars();
+    await retryPendingAvatars(); // replacements that failed earlier get another try before first render
 
     buildMemberCards();
 
