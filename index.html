@@ -57,6 +57,12 @@
         .avatar-wrap .avatar-img {
             display: block;
         }
+        /* Picture could not be stored on the server: it is only in this
+           browser and will be lost on a reboot / another device. */
+        .avatar-wrap.avatar-unsaved .avatar-img {
+            border-color: #d33;
+            box-shadow: 0 0 0 3px rgba(221, 51, 51, 0.35);
+        }
 
         /* ── Dark Mode ─────────────────────────────────────── */
         body.dark {
@@ -372,10 +378,15 @@ try {
 } catch (e) {}
 
 // ── Build Family Member Cards ──────────────────────────────────
-// Local overrides for avatars (uploaded via the camera overlay) live in
-// localStorage under 'avatarOverrides' keyed by member name. Uploaded
-// images are center-cropped to square, resized to 150x150, encoded as JPEG
-// data URIs — all client-side, nothing sent to the server.
+// Uploaded profile pictures are stored by the package on its volume
+// (/data/avatars) and listed by /api/avatars, so they survive reboots, browser
+// site-data wipes and the interface's LAN port changing, and every device sees
+// the same pictures. localStorage keeps a mirror of the last picture purely as
+// an instant cache (and for browsers talking to an older build).
+// Uploaded images are center-cropped to square, resized to 150x150, encoded as
+// JPEG data URIs — all client-side, then sent to the package.
+
+let serverAvatars = {};
 
 function getAvatarOverrides() {
     try {
@@ -395,7 +406,46 @@ function saveAvatarOverride(name, dataUri) {
     localStorage.setItem('avatarOverrides', JSON.stringify(overrides));
 }
 
+async function loadServerAvatars() {
+    try {
+        const resp = await fetch('/api/avatars', { cache: 'no-store' });
+        if (!resp.ok) return;
+        serverAvatars = (await resp.json()) || {};
+    } catch (e) {
+        console.warn('Could not load saved profile pictures:', e);
+    }
+}
+
+// Pictures uploaded before server-side storage existed live only in this
+// browser's localStorage. Move them onto the server once so a reboot or a
+// cleared cache no longer loses them.
+async function migrateLocalAvatars() {
+    const overrides = getAvatarOverrides();
+    for (const [name, dataUri] of Object.entries(overrides)) {
+        if (!dataUri || serverAvatars[name]) continue;
+        try {
+            const saved = await uploadAvatar(name, dataUri);
+            if (saved && saved.url) serverAvatars[name] = saved;
+        } catch (e) {
+            console.warn(`Local picture for ${name} could not be saved to the server:`, e);
+        }
+    }
+}
+
+async function uploadAvatar(memberName, dataUrl) {
+    const blob = await (await fetch(dataUrl)).blob();
+    const resp = await fetch('/api/avatar?name=' + encodeURIComponent(memberName), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: blob,
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} from /api/avatar`);
+    return resp.json();
+}
+
 function avatarSrcFor(member, index) {
+    const remote = serverAvatars[member.name];
+    if (remote && remote.url) return `${remote.url}?v=${remote.v}`;
     const overrides = getAvatarOverrides();
     if (overrides[member.name]) return overrides[member.name];
     if (member.avatar) return member.avatar;
@@ -477,6 +527,24 @@ function processAvatarFile(file, memberName) {
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             saveAvatarOverride(memberName, dataUrl);
             buildMemberCards();
+            uploadAvatar(memberName, dataUrl)
+                .then((saved) => {
+                    if (saved && saved.url) serverAvatars[memberName] = saved;
+                    buildMemberCards();
+                })
+                .catch((e) => {
+                    // The picture still shows from the local mirror, but it will
+                    // not survive a reboot / another device. Say so at the point
+                    // of the upload rather than silently losing it later.
+                    console.error('Could not store the profile picture on the server:', e);
+                    const wrap = document.querySelector(
+                        `.avatar-wrap[data-member="${CSS.escape(memberName)}"]`
+                    );
+                    if (wrap) {
+                        wrap.classList.add('avatar-unsaved');
+                        wrap.title = 'This picture is only stored in this browser — the dashboard could not save it.';
+                    }
+                });
         };
         img.src = e.target.result;
     };
@@ -947,6 +1015,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('dashboard-heading').innerText = dashboardConfig.title;
     document.title = dashboardConfig.title;
+
+    // Pictures come from the server (survives reboots); anything only this
+    // browser still holds is pushed up once before the first render.
+    await loadServerAvatars();
+    await migrateLocalAvatars();
 
     buildMemberCards();
 
